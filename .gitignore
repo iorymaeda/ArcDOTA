@@ -1,0 +1,12 @@
+*.log
+*.json
+*.pkl
+*.npy
+*.torch
+*.exe
+dotaconstants
+train/logs/fit
+
+.VSCodeCounter
+.ipynb_checkpoints
+__pycache__

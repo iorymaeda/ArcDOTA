@@ -1,0 +1,38 @@
+# This settings aply to drop matches
+
+public:
+  # min is >=
+  # max is <=
+  min: 
+    duration: 900
+  max: 
+    duration: 5000
+  rd: # summary `r_` + `d_` stats
+    min: 
+      tower_destroyd: 4
+      kills: 10
+    max: null
+  r_d: # `r_` or `d_` stats
+    min: 
+      kills: 4
+    max: null
+
+
+league:
+  tiers:
+    # premium is official valve tournaments
+    premium: 
+      include: True
+      prize_pool: 0
+    # unofficial tournaments
+    professional: 
+      include: True
+      prize_pool: 50_000
+    # smth like trash
+    excluded:
+      include: True
+      prize_pool: 75_000
+    # just in case
+    others:
+      include: True
+      prize_pool: 75_000

@@ -1,0 +1,1 @@
+tensorboard --logdir C:/Projects/DOTA/train/logs/fit/prematch

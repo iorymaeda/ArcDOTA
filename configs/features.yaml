@@ -1,0 +1,51 @@
+# Config for feature generation 
+
+
+league:
+  players_rules:
+    # this feature used while we parse teams games insted players games
+    # this is how many good players should be in current match
+    # for example in current match we have 1 good player and 4 bad, so drop it
+    min_good_players_in_stack: 4
+    # this is how many similar players to current match should be in past (window) matches
+    # for example in previous match team played with 3 standoff, so only 2 players from current match and previous match is match
+    min_match_players_in_window: 4
+    # minimum games played by player in train dataset
+    # otherwise this player will not tokinized
+    min_played_games: 32
+
+  teams_rules:
+    # minimum games that team should play
+    # otherwise this team will not tokinized
+    min_played_games: 32
+    # minimum games that team with this players stack should play
+    # otherwise we will not predict this match with new stack (less than `min_played_games_for_stack` played games)
+    min_played_games_for_stack: 16
+
+  # Num of games in one window
+  window_size: 32
+  window_min_size: 4
+  # padding mode, pad at the start or end
+  window_pad_mode: start
+  # Features used in prediction
+  features:
+    # Features includes in window
+    window:
+      stats: linear
+      opponent_stats: linear
+      opponent: False
+      result: categorical
+    tabular: 
+      teams: True
+      players: False 
+
+
+
+public:
+  players_rules:
+    # this is how many good players should be in current match
+    # for example in current match we have 1 good player and 4 bad, so drop it
+    min_good_players_in_stack: 0
+    # minimum games played by player in train dataset
+    # otherwise this player will not tokinized
+    min_played_games: 100

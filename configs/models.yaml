@@ -1,0 +1,18 @@
+# This config stores hyperparametrs configuration
+
+preamtch:
+  team_embedding:
+    embed_dim: 8
+
+  windowedGamesFeatureEncoder:
+    embed_dim: 64
+    dropout: 0.25
+  
+  transformer:
+    embed_dim: 64
+    num_heads: 4
+    ff_dim: 64
+    dropout: 0.15
+    num_encoder_layers: 6
+
+  compare_fnn: null

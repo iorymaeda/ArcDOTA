@@ -1,0 +1,12 @@
+split:
+  # if > 1 then it is number of samples
+  # elif <= 1 then it is percent of train data
+  league:
+    val: 200
+    test: 512
+  public:
+    val: 0.025
+    test: 0.075
+
+batch_size:
+  league: 1024
