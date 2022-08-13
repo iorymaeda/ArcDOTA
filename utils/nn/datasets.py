@@ -8,28 +8,28 @@ from ..time_series import TSCollector
 
 
 class LeagueDataset(ConfigBase, D):
-    def __init__(self, corpus: pd.DataFrame, indeces: pd.Index, y_output:str, mask_type: str = 'bool'):
+    def __init__(self, corpus: pd.DataFrame, indexes: pd.Index, y_output:str, mask_type: str = 'bool'):
         """TODO: Fill this out with more details later
 
         Args:
             - corpus: pd.DataFrame - the whole (or only with two team games if it inference) 
                 corpus with games in ascending chronological order
-                `corpus` >= `indeces`
-            - indeces: pd.Index - corpus indeces with games to output
-                `indeces` <= `corpus`
+                `corpus` >= `indexes`
+            - indexes: pd.Index - corpus indexes with games to output
+                `indexes` <= `corpus`
         """
         assert y_output in ['binary', 'crossentropy']
 
         self.collector = TSCollector(mask_type=mask_type)
 
         self.corpus = corpus
-        self.indeces = indeces
+        self.indexes = indexes
         self.y_output = y_output
         
         self.cache = {}
 
         self.config = None
-        self.config = self.get_config('features')
+        self.config = self._get_config('features')
         self.__generated = False
 
 
@@ -41,7 +41,7 @@ class LeagueDataset(ConfigBase, D):
     def build(self) -> 'LeagueDataset':
         if not self.cache:
             cached_num = 0
-            for index in self.indeces:
+            for index in self.indexes:
                 sample = self.generate_sample(index)
 
                 if (sample['r_window']['seq_len'] >= self.config['league']['window_min_size'] and 

@@ -13,7 +13,7 @@ class Evaluator(ConfigBase):
     bad matches will be dropped
     good/bad matches are defined by configs: `../configs/match.yaml`"""
     def __init__(self):
-        self.config = self.get_config('match')
+        self.config = self._get_config('match')
 
 
     def __call__(self, match: _typing.property.Match | dict | pd.DataFrame) -> pd.DataFrame | bool:

@@ -2,8 +2,9 @@
 
 import numpy as np
 import pandas as pd 
+from typing import Literal
 
-import utils
+from . import _typing
 from .base import ConfigBase
 
 
@@ -11,7 +12,7 @@ class TSCollector(ConfigBase):
     def __init__(self, mask_type:str = 'bool'):
         self.mask_type = mask_type
         self.output_framework = np.array # w.i.p.
-        self.config = self.get_config('features')
+        self.config = self._get_config('features')
         
 
     def collect_window(
@@ -199,12 +200,12 @@ class TSCollector(ConfigBase):
         """Parse statistic from previous games
 
         Output shape: (`window`, F) 
-        F is num of features from `utils._typing.property.FEATURES`
+        F is num of features from `_typing.property.FEATURES`
         """
         if isinstance(cropped, pd.DataFrame):
             output = []
-            columns_r = [f"r_{f}" for f in utils._typing.property.FEATURES]
-            columns_d = [f"d_{f}" for f in utils._typing.property.FEATURES]
+            columns_r = [f"r_{f}" for f in _typing.property.FEATURES]
+            columns_d = [f"d_{f}" for f in _typing.property.FEATURES]
             stats_r = cropped[columns_r].values.astype('float32')
             stats_d = cropped[columns_d].values.astype('float32')
 
@@ -281,7 +282,7 @@ class TSCollector(ConfigBase):
         else: raise NotImplementedError
 
 
-    def pad_window(self, arr: np.ndarray, window: int, mode:str='end', constant:int=0):
+    def pad_window(self, arr: np.ndarray, window: int, mode:Literal['start', 'end']='end', constant:int=0):
         """Pad array to window size
 
         Args:
