@@ -16,19 +16,15 @@ def reopen():
 
     try: client.close()
     except: pass
-    client = pymongo.MongoClient("mongodb://localhost:27017/", maxPoolSize=50)
+    client = pymongo.MongoClient("mongodb://localhost:27017/")
 
 
 def parse_table(table, save_table, months, verbose=True):
     reopen()
     _matches = client['DotaMatches'][table].find(
-        {
-            "start_time": {
-                "$gt": int(time.time()) - 60*60*24*30*months
-            }
-        }
-    )
-    
+        {"start_time": {
+                "$gt": int(time.time()) - 60*60*24*30*months}})
+
     for idx, match in enumerate(_matches):    
         try:
             _match = od(match)
@@ -38,16 +34,13 @@ def parse_table(table, save_table, months, verbose=True):
                 replacement=_match, 
                 upsert=True,
             )
-        except Exception as e:
-            errors.append(e)
-            error_matches.append(match['match_id'])
             
-        if (idx+1) % 1000 == 0:
-            # reopen()
-            pass
+        except Exception as e:
+            print(match['match_id'], e)
 
         if verbose and (idx+1) % 500 == 0:
             print(idx)
+    
 
 
 if __name__ == "__main__":
@@ -57,19 +50,15 @@ if __name__ == "__main__":
         leagues_path='../scarpe/output/leagues.json', 
         prize_pools_path='../scarpe/output/prize_pools.json',
     )
-
-                
-    errors = []
-    error_matches = []
     parse_table(
         table='leagueMatches', 
         save_table='leagueMatches', 
-        months=30, verbose=False,
+        months=30, verbose=True,
     )
     parse_table(
         table='publicMatches', 
         save_table='publicMatches', 
-        months=30, verbose=False,
+        months=30, verbose=True,
     )  
     # How to simple convert to pandas
     # matches = [_match for i in range(100_000)]

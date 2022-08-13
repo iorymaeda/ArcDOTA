@@ -40,15 +40,19 @@ def run(verbose=True):
     with open('../configs/train.yaml', 'r') as stream:
         config = yaml.safe_load(stream)
 
+    
     parser = utils.parsers.PropertyParser()
     evaluator = utils.Evaluator()
 
-
     for mode in ['league', 'public']:
+        tokenizer = utils.Tokenizer(mode=mode)
+        scaler = utils.scalers.BaseScaler(utils._typing.property.FEATURES)
+
         log(f'# ----------------------------------------------------------- #')
         log(f'start parse {mode}')
 
         # ----------------------------------------------------------- #
+        # Load and parse
         matches = load_table(f'{mode}Matches')
         log(f'matches has been loaded from db')
         log(f'number of matches: {len(matches)}')
@@ -57,6 +61,7 @@ def run(verbose=True):
         log(f'number of matches after parser: {len(df)}')
 
         # ----------------------------------------------------------- #
+        # Evaluate and drop
         df = evaluator(df)
         log(f'number of matches after evaluator: {len(df)}')
 
@@ -89,6 +94,7 @@ def run(verbose=True):
         log(f'number of matches after drop na: {len(df)}')
 
         # ----------------------------------------------------------- #
+        # Split train/val/test
         log(f'split matches...')
         l = len(df)
         t_size = config['split'][mode]['test']
@@ -114,14 +120,15 @@ def run(verbose=True):
         log(f'test size: {len(test_df)}')
 
         # ----------------------------------------------------------- #
+        # Save raw data
         log(f'save...')
         train_df.reset_index(drop=True).to_json(f'output/{mode}/raw_train_df.json')
         val_df.reset_index(drop=True).to_json(f'output/{mode}/raw_val_df.json')
         test_df.reset_index(drop=True).to_json(f'output/{mode}/raw_test_df.json')
 
         # ----------------------------------------------------------- #
-        log(f'tokinize...')
-        tokenizer = utils.Tokenizer()
+        # Tokenize
+        log(f'tokenize...')
         tokenizer.fit(train_df)
 
         train_df = tokenizer.tokenize(train_df)
@@ -137,15 +144,20 @@ def run(verbose=True):
             log(f'number of matches after tokinize   val_df: {len(val_df)}')
             log(f'number of matches after tokinize  test_df: {len(test_df)}')
 
+        tokenizer.save(f'output/tokenizer_{mode}.pkl')
         # ----------------------------------------------------------- #
         log(f'scaling...')
-        scaler = utils.scalers.BaseScaler(utils._typing.property.FEATURES)
-        scaler.fit(train_df)
+        scaler.fit(train_df, 'teams')
+        scaler.fit(train_df, 'players')
 
-        train_df = scaler.transform(train_df, 'minmax2')
-        val_df = scaler.transform(val_df, 'minmax2')
-        test_df = scaler.transform(test_df, 'minmax2')
+        train_df = scaler.transform(train_df, 'minmax2', mode='teams')
+        train_df = scaler.transform(train_df, 'minmax2', mode='players')
+        val_df = scaler.transform(val_df, 'minmax2', mode='teams')
+        val_df = scaler.transform(val_df, 'minmax2', mode='players')
+        test_df = scaler.transform(test_df, 'minmax2', mode='teams')
+        test_df = scaler.transform(test_df, 'minmax2', mode='players')
 
+        scaler.save(f'output/scaler_{mode}.pkl')
         # ----------------------------------------------------------- #
         log(f'save...')
         train_df.reset_index(drop=True).to_json(f'output/{mode}/train_df.json')

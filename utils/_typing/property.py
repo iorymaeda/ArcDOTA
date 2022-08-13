@@ -18,13 +18,9 @@ class Stats(B):
     roshan_kills: int = 0
     tower_damage: int = 0
     hero_damage: int = 0
-    tower_destroyd: int = 0
     stuns: float = 0
     heal: float = 0
     
-__schema: dict = pydantic.schema_of(Stats)
-__schema: dict = __schema['definitions']['Stats']['properties']
-FEATURES: list = list(__schema.keys())
 
 class TimeSeries(B):
     gold: list[int]
@@ -112,3 +108,8 @@ class Match(B):
     teams: Teams | None
 
     overview: Overview
+
+
+__schema: dict = pydantic.schema_of(Stats)
+__schema: dict = __schema['definitions']['Stats']['properties']
+FEATURES: list = list(__schema.keys())

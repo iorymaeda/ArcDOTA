@@ -3,7 +3,7 @@ split:
   # elif <= 1 then it is percent of train data
   league:
     val: 200
-    test: 512
+    test: 1000
   public:
     val: 0.025
     test: 0.075

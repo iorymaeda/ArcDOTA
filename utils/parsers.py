@@ -134,17 +134,27 @@ class OpendotaParser(ConfigBase):
         return hero_role
 
 
-    def parse_building_destroys(self, objectives: _typing.opendota.Objectives) -> tuple[int, int]:
+    def parse_building_destroys(self, objectives: _typing.opendota.Objectives) -> tuple[dict[int, int], int, int]:
+        d = {s:0 for s in self.RADIANT_SIDE + self.DIRE_SIDE}
         r_twd_t = 0
         d_twd_t = 0
         for obj in objectives:
             if obj['type'] == 'building_kill':
-                if obj['key'][9] == 'b': # radiant destroy tower
+                # Examples of `obj['key']`:
+                # // npc_dota_goodguys_... - dire's tower
+                # // npc_dota_badguys_...  - radiant's tower
+                if obj['key'][9] == 'b':
                     r_twd_t+=1
-                elif obj['key'][9] == 'g': # dire destroy tower
+
+                elif obj['key'][9] == 'g':
                     d_twd_t+=1    
 
-        return r_twd_t, d_twd_t
+                else: continue
+
+                if 'player_slot' in obj:
+                    d[int(obj['player_slot'])] += 1
+
+        return d, r_twd_t, d_twd_t
 
 
     def parse_kills(self, players: _typing.opendota.Players, max_duration:int=63, max_kills:int=10):
@@ -344,10 +354,6 @@ class OpendotaParser(ConfigBase):
         radiant_team_stats = _typing.property.Stats()
         dire_team_stats = _typing.property.Stats()
 
-        r_td, d_td = self.parse_building_destroys(match['objectives'])
-        radiant_team_stats.tower_destroyd = r_td
-        dire_team_stats.tower_destroyd = d_td
-
         player: _typing.opendota.Player
         for player in match['players']:
             player_stats = _typing.property.Stats()
@@ -440,7 +446,7 @@ class OpendotaParser(ConfigBase):
         return overview
 
 
-class PropertyParser:
+class PropertyParser(ConfigBase):
     """Property matches to `pd.DataFrame` parser"""
     def __call__(self, matches: list[_typing.property.Match | dict] | _typing.property.Match | dict) -> pd.DataFrame:
         """Parse property matches to `pd.DataFrame`"""
@@ -504,6 +510,24 @@ class PropertyParser:
             c.update(r)
             c.update(d)
 
+            # ----------------------------------------------------------- #
+            # overview - players
+            r_players = {}
+            d_players = {}
+            players_overview = df.loc[idx, 'overview']['players']
+            for p in players_overview:
+                if p['slot'] in self.RADIANT_SIDE:
+                    r_players.update(
+                        {f"{p['slot']}_{k}":v for k,v in p['stats'].items()}
+                    )
+                elif p['slot'] in self.DIRE_SIDE:
+                    d_players.update(
+                        {f"{p['slot']}_{k}":v for k,v in p['stats'].items()}
+                    )  
+
+
+            c.update(r_players)
+            c.update(d_players)
 
             # ----------------------------------------------------------- #
             new_rows.append(c)
