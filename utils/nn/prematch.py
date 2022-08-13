@@ -14,8 +14,8 @@ class PrematchModel(ConfigBase, nn.Module):
     def __init__(self, teams_num, team_emb_dim=8, embed_dim=64, num_heads=4, num_encoder_layers=6, dropout=0.25):
         super().__init__()
         # --------------------------------------------------------- #
-        self.features_config = self.get_config('features')
-        self.models_config = self.get_config('models')
+        self.features_config = self._get_config('features')
+        self.models_config = self._get_config('models')
 
         if self.features_config['league']['features']['tabular']['teams']:
             self.team_embedding = nn.Embedding(teams_num+1, team_emb_dim)

@@ -143,7 +143,7 @@ class StatsEncoder(nn.Module):
         assert num_layers >= 1
 
         # -------------------------------- #
-        # TODO
+        # TODO// implement config
         self.config = {'norm': 'batch'}
         norm = nn.LayerNorm if self.config['norm'] == 'layer' else nn.BatchNorm1d
         
@@ -196,7 +196,12 @@ class WindowedGamesFeatureEncoder(ConfigBase, nn.Module):
         super(WindowedGamesFeatureEncoder, self).__init__()
         self.config = self.get_config('features')
 
-        self.statsEncoder = StatsEncoder(len(FEATURES), embed_dim, embed_dim, num_layers=2, dropout=dropout)
+        self.statsEncoder = StatsEncoder(   
+            in_dim=len(FEATURES), 
+            ff_dim=embed_dim, 
+            out_dim=embed_dim, 
+            num_layers=2, 
+            dropout=dropout)
         self.resultEncoder = ResultEncoder(embed_dim)
         self.pos_embedding = nn.Embedding(self.config['league']['window_size']+1, embed_dim)
         
