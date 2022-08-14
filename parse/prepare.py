@@ -46,7 +46,7 @@ def run(verbose=True):
 
     for mode in ['league', 'public']:
         tokenizer = utils.Tokenizer(mode=mode)
-        scaler = utils.scalers.BaseScaler(utils._typing.property.FEATURES)
+        scaler = utils.scalers.DotaScaler(utils._typing.property.FEATURES)
 
         log(f'# ----------------------------------------------------------- #')
         log(f'start parse {mode}')
@@ -131,18 +131,19 @@ def run(verbose=True):
         log(f'tokenize...')
         tokenizer.fit(train_df)
 
-        train_df = tokenizer.tokenize(train_df)
-        val_df = tokenizer.tokenize(val_df)
-        test_df = tokenizer.tokenize(test_df)
+        if mode == 'public':
+            train_df = tokenizer.tokenize(train_df)
+            val_df = tokenizer.tokenize(val_df)
+            test_df = tokenizer.tokenize(test_df)
 
-        if mode == 'league':
-            train_df = tokenizer.evaluate(train_df)
-            val_df = tokenizer.evaluate(val_df)
-            test_df = tokenizer.evaluate(test_df)
+        # if mode == 'league':
+        #     train_df = tokenizer.evaluate(train_df)
+        #     val_df = tokenizer.evaluate(val_df)
+        #     test_df = tokenizer.evaluate(test_df)
 
-            log(f'number of matches after tokinize train_df: {len(train_df)}')
-            log(f'number of matches after tokinize   val_df: {len(val_df)}')
-            log(f'number of matches after tokinize  test_df: {len(test_df)}')
+        #     log(f'number of matches after tokinize train_df: {len(train_df)}')
+        #     log(f'number of matches after tokinize   val_df: {len(val_df)}')
+        #     log(f'number of matches after tokinize  test_df: {len(test_df)}')
 
         tokenizer.save(f'output/tokenizer_{mode}.pkl')
         # ----------------------------------------------------------- #
@@ -150,12 +151,9 @@ def run(verbose=True):
         scaler.fit(train_df, 'teams')
         scaler.fit(train_df, 'players')
 
-        train_df = scaler.transform(train_df, 'minmax2', mode='teams')
-        train_df = scaler.transform(train_df, 'minmax2', mode='players')
-        val_df = scaler.transform(val_df, 'minmax2', mode='teams')
-        val_df = scaler.transform(val_df, 'minmax2', mode='players')
-        test_df = scaler.transform(test_df, 'minmax2', mode='teams')
-        test_df = scaler.transform(test_df, 'minmax2', mode='players')
+        train_df = scaler.transform(train_df, 'yeo-johnson', mode='both')
+        val_df = scaler.transform(val_df, 'yeo-johnson', mode='both')
+        test_df = scaler.transform(test_df, 'yeo-johnson', mode='both')
 
         scaler.save(f'output/scaler_{mode}.pkl')
         # ----------------------------------------------------------- #
