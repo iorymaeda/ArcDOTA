@@ -7,7 +7,7 @@ import utils
 
 async def main():
     wrapper = utils.wrappers.PropertyWrapper()
-    data = await wrapper.prematch(team1=15, team2=7119388)
+    data = await wrapper.prematch(team1=7119388, team2=15, match_id=6707754788)
     data = utils.nn.tools.batch_to_tensor(data)
     data = utils.nn.tools.batch_to_device(data, 'cuda')
     
