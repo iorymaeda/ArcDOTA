@@ -62,17 +62,17 @@ Something like face recognition, with the same margin additive loss or just cros
 
 ### Charts
 
-###### Pickrate
+##### Pickrate
 
 num of games per hero in dataset
 ![pickrate](output/heroes_pickrate.png)
 
-###### Heroes representations (visualizied with TSNE)
+##### Heroes representations (visualizied with TSNE)
 
-Embedding weights from `Heroes -> Perfomance*` model
+Embedding weights from `Heroes -> Perfomance` model
 ![TSNE_heroes](output/embeddings/TSNE_heroes.png)
 
-Kernel weights `centroids` from `Perfomance -> Heroes` model
+Kernel weights "centroids" from `Perfomance -> Heroes` model
 ![TSNE_heroes](output/embeddings/TSNE_heroes_softmax.png)
 
 ## League overview
