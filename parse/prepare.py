@@ -58,13 +58,14 @@ def run(verbose=True):
         log(f'number of matches: {len(matches)}')
         
         df = parser(matches)
-        df.drop(['_id'], inplace=True)
         log(f'number of matches after parser: {len(df)}')
+        with utils.development.suppress(KeyError):
+            df.drop(['_id'], inplace=True, axis=1)
 
         # ----------------------------------------------------------- #
         # Purge old games //TODO: FIX THIS, MAKE THIS FLEXIBLE
-        df = df[df['start_time'] > 1577826000]
-        log(f'number of matches after purge old games: {len(df)}')
+        # df = df[df['start_time'] > 1577826000]
+        # log(f'number of matches after purge old games: {len(df)}')
 
         # ----------------------------------------------------------- #
         # Evaluate and drop
@@ -161,6 +162,7 @@ def run(verbose=True):
         scaler.fit(train_df, 'teams')
         scaler.fit(train_df, 'players')
 
+        # //TODO: put it to configs
         train_df = scaler.transform(train_df, 'yeo-johnson', mode='both')
         if v_size > 0:
             val_df = scaler.transform(val_df, 'yeo-johnson', mode='both')   
