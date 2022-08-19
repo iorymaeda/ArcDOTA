@@ -1,4 +1,6 @@
+import tqdm
 import random
+from typing import Literal
 
 import pandas as pd
 from torch.utils.data import Dataset as D
@@ -8,7 +10,7 @@ from ..time_series import TSCollector
 
 
 class LeagueDataset(ConfigBase, D):
-    def __init__(self, corpus: pd.DataFrame, indexes: pd.Index, y_output:str, mask_type: str = 'bool'):
+    def __init__(self, corpus: pd.DataFrame, indexes: pd.Index, evaluate_tokenize:bool=True, y_output: Literal['binary', 'crossentropy']='binary', mask_type: str = 'bool'):
         """TODO: Fill this out with more details later
 
         Args:
@@ -18,14 +20,14 @@ class LeagueDataset(ConfigBase, D):
             - indexes: pd.Index - corpus indexes with games to output
                 `indexes` <= `corpus`
         """
-        assert y_output in ['binary', 'crossentropy']
+        self.collector = TSCollector(mask_type=mask_type, y_output=y_output)
 
-        self.collector = TSCollector(mask_type=mask_type)
-
+        
         self.corpus = corpus
         self.indexes = indexes
-        self.y_output = y_output
-        
+        self.evaluate_tokenize = evaluate_tokenize
+
+
         self.cache = {}
 
         self.config = None
@@ -41,10 +43,10 @@ class LeagueDataset(ConfigBase, D):
     def build(self) -> 'LeagueDataset':
         if not self.cache:
             cached_num = 0
-            for index in self.indexes:
+            for index in tqdm.tqdm(self.indexes):
                 sample = self.generate_sample(index)
 
-                if (sample['r_window']['seq_len'] >= self.config['league']['window_min_size'] and 
+                if sample and (sample['r_window']['seq_len'] >= self.config['league']['window_min_size'] and 
                     sample['d_window']['seq_len'] >= self.config['league']['window_min_size']):
 
                     self.cache[cached_num] = sample
@@ -63,9 +65,7 @@ class LeagueDataset(ConfigBase, D):
         return self.cache[idx]
 
 
-    def generate_sample(self, index, corpus=None) -> dict:
-        output = {}
-
+    def generate_sample(self, index, corpus=None) -> dict|None:
         corpus = self.corpus if corpus is None else corpus
 
         # Previous games
@@ -73,45 +73,12 @@ class LeagueDataset(ConfigBase, D):
         # Current game
         anchor = corpus[index:index+1]
 
-        r_team_id = anchor['r_team_id'].values.astype('int64')[0]
-        d_team_id = anchor['d_team_id'].values.astype('int64')[0]
+        _anchor = self.collector.tokenizer.tokenize(anchor, teams=True, players=True)
+        _anchor = self.collector.tokenizer.evaluate(_anchor)
+        if self.evaluate_tokenize and len(_anchor) == 0: return None
 
-        r_players = anchor[[f'{s}_account_id' for s in self.RADIANT_SIDE]].values.astype('int64')[0]
-        d_players = anchor[[f'{s}_account_id' for s in self.DIRE_SIDE]].values.astype('int64')[0]
-
-        output['r_window'] = self.collector.collect_window(
-            games=games, 
-            team_id=r_team_id, 
-            players=r_players)
-
-        output['d_window'] = self.collector.collect_window(
-            games=games, 
-            team_id=d_team_id, 
-            players=d_players)
-
-        output['match_id'] = anchor['match_id'].values.astype('int64')
-
-        match self.y_output:
-            case 'binary':
-                output['y'] = anchor['radiant_win'].values.astype('float32')
-            case 'crossentropy':
-                output['y'] = anchor['radiant_win'].values.astype('int64') + 1
-        
-        tabular_features = self.config['league']['features']['tabular']
-        for feature in tabular_features:
-            if tabular_features[feature]:
-                match feature:
-                    case 'teams':
-                        output['teams'] = {
-                            'radiant': r_team_id,
-                            'dire': d_team_id,
-                        }
-                    case 'players':
-                        output['players'] = {
-                            'radiant': r_players,
-                            'dire': d_players,
-                        }
-        
-        return output
+        return self.collector.collect_windows(
+            games=games, anchor=anchor, tokenize=True, 
+        )
 
 

@@ -1,18 +1,19 @@
 """Scarpe all leagues and its prize pools"""
 
 import os
+import sys; sys.path.append('../')
 import time
 import json
 import asyncio
 
-from utils.requests import Session
-from utils.opendota import OpendotaWrapper
+from utils.wrappers import OpendotaWrapper
+from utils.development import SessionHelper
 
 
 os.environ['steam_api_key'] = '61886694FAAE6A81CD7E6337B6D98361'
 
 async def prize_pool(leagues: set, batch_size: int = 120) -> dict:
-    session = Session()
+    session = SessionHelper()
     api_key = os.environ.get('steam_api_key')
 
     league_prize_pool = {}
@@ -38,7 +39,7 @@ async def prize_pool(leagues: set, batch_size: int = 120) -> dict:
 
 async def main():
     od = OpendotaWrapper()
-    leagues = await od.leagues()
+    leagues = await od.fetch_leagues()
     with open('output/leagues.json', 'w', encoding='utf-8') as f:
         json.dump(leagues, f, ensure_ascii=False, indent=4)
 

@@ -24,7 +24,7 @@ league:
 
   # Num of games in one window
   window_size: 32
-  window_min_size: 4
+  window_min_size: 2
   # padding mode, pad at the start or end
   window_pad_mode: start
   # Features used in prediction

@@ -53,12 +53,12 @@ if __name__ == "__main__":
     parse_table(
         table='leagueMatches', 
         save_table='leagueMatches', 
-        months=30, verbose=True,
+        months=42, verbose=True,
     )
     parse_table(
         table='publicMatches', 
         save_table='publicMatches', 
-        months=30, verbose=True,
+        months=42, verbose=True,
     )  
     # How to simple convert to pandas
     # matches = [_match for i in range(100_000)]

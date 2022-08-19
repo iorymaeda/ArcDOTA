@@ -58,7 +58,13 @@ def run(verbose=True):
         log(f'number of matches: {len(matches)}')
         
         df = parser(matches)
+        df.drop(['_id'], inplace=True)
         log(f'number of matches after parser: {len(df)}')
+
+        # ----------------------------------------------------------- #
+        # Purge old games //TODO: FIX THIS, MAKE THIS FLEXIBLE
+        df = df[df['start_time'] > 1577826000]
+        log(f'number of matches after purge old games: {len(df)}')
 
         # ----------------------------------------------------------- #
         # Evaluate and drop
@@ -87,10 +93,6 @@ def run(verbose=True):
             df['league_id'].fillna(0, inplace=True)
         
         df.dropna(inplace=True)
-        df.sort_values(
-            by='start_time', 
-            inplace=True,
-        )
         log(f'number of matches after drop na: {len(df)}')
 
         # ----------------------------------------------------------- #
@@ -115,16 +117,22 @@ def run(verbose=True):
             df = df[:-int(l*v_size)]
             
         train_df = df
+
+        
         log(f'train size: {len(train_df)}')
-        log(f'val size: {len(val_df)}')
-        log(f'test size: {len(test_df)}')
+        if v_size > 0:
+            log(f'val size: {len(val_df)}')
+        if t_size > 0:
+            log(f'test size: {len(test_df)}')
 
         # ----------------------------------------------------------- #
         # Save raw data
         log(f'save...')
         train_df.reset_index(drop=True).to_json(f'output/{mode}/raw_train_df.json')
-        val_df.reset_index(drop=True).to_json(f'output/{mode}/raw_val_df.json')
-        test_df.reset_index(drop=True).to_json(f'output/{mode}/raw_test_df.json')
+        if v_size > 0:
+            val_df.reset_index(drop=True).to_json(f'output/{mode}/raw_val_df.json')
+        if t_size > 0:
+            test_df.reset_index(drop=True).to_json(f'output/{mode}/raw_test_df.json')
 
         # ----------------------------------------------------------- #
         # Tokenize
@@ -132,9 +140,11 @@ def run(verbose=True):
         tokenizer.fit(train_df)
 
         if mode == 'public':
-            train_df = tokenizer.tokenize(train_df)
-            val_df = tokenizer.tokenize(val_df)
-            test_df = tokenizer.tokenize(test_df)
+            train_df = tokenizer.tokenize(train_df, players=True, teams=True)
+            if v_size > 0:
+                val_df = tokenizer.tokenize(val_df, players=True, teams=True)
+            if t_size > 0:
+                test_df = tokenizer.tokenize(test_df, players=True, teams=True )
 
         # if mode == 'league':
         #     train_df = tokenizer.evaluate(train_df)
@@ -152,15 +162,19 @@ def run(verbose=True):
         scaler.fit(train_df, 'players')
 
         train_df = scaler.transform(train_df, 'yeo-johnson', mode='both')
-        val_df = scaler.transform(val_df, 'yeo-johnson', mode='both')
-        test_df = scaler.transform(test_df, 'yeo-johnson', mode='both')
+        if v_size > 0:
+            val_df = scaler.transform(val_df, 'yeo-johnson', mode='both')   
+        if t_size > 0:
+            test_df = scaler.transform(test_df, 'yeo-johnson', mode='both')
 
         scaler.save(f'output/scaler_{mode}.pkl')
         # ----------------------------------------------------------- #
         log(f'save...')
         train_df.reset_index(drop=True).to_json(f'output/{mode}/train_df.json')
-        val_df.reset_index(drop=True).to_json(f'output/{mode}/val_df.json')
-        test_df.reset_index(drop=True).to_json(f'output/{mode}/test_df.json')
+        if v_size > 0:
+            val_df.reset_index(drop=True).to_json(f'output/{mode}/val_df.json')
+        if t_size > 0:
+            test_df.reset_index(drop=True).to_json(f'output/{mode}/test_df.json')
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 import json
-from contextlib import suppress
+import pathlib
 
 import pydantic
 import numpy as np
@@ -7,6 +7,7 @@ import pandas as pd
 
 from . import _typing
 from .base import ConfigBase
+from .development import suppress
 
 
 class OpendotaParser(ConfigBase):
@@ -41,10 +42,6 @@ class OpendotaParser(ConfigBase):
         else:
             raise Exception("`tokenizer` type must be str or dict")
 
-
-        if dotaconstants_path.endswith('/'):
-            dotaconstants_path = dotaconstants_path[:-1]
-
         patch_path = f'{dotaconstants_path}/build/patch.json'
         region_path = f'{dotaconstants_path}/build/region.json' 
         game_mode_path = f'{dotaconstants_path}/build/game_mode.json'
@@ -60,17 +57,15 @@ class OpendotaParser(ConfigBase):
         self.__load_prize_pools(prize_pools_path)
 
 
-    def __load_json(self, path: str) -> dict:
+    def __load_json(self, path: str | pathlib.Path) -> dict:
         for encoding in [None, 'utf8', 'utf16', 'utf32']:
-            with suppress(UnicodeDecodeError):
-                with open(path, 'r', encoding=encoding) as f:
+            with (suppress(UnicodeDecodeError), open(path, 'r', encoding=encoding) as f):
                     return json.load(f)
 
         raise UnicodeDecodeError
 
     def __load_leagues(self, path: str):
         leagues = self.__load_json(path)
-
         self.leagues = {
             l['leagueid']: {
                 'tier': l['tier'],
@@ -532,11 +527,15 @@ class PropertyParser(ConfigBase):
             # ----------------------------------------------------------- #
             new_rows.append(c)
 
-        return pd.concat(
+        df = pd.concat(
             [
-                df.drop(['_id', 'league', 'players', 'teams'], axis=1), 
+                df.drop(['league', 'players', 'teams'], axis=1), 
                 pd.DataFrame(new_rows),
-            ], axis=1
+            ], axis=1)
+        df.sort_values(
+            by='start_time', 
+            inplace=True,
         )
+        return df
 
 

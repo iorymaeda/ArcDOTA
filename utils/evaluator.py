@@ -210,8 +210,9 @@ class Evaluator(ConfigBase):
             return True
 
         elif isinstance(match, _typing.property.Match):
-            r = getattr(getattr(match, 'overview'), 'teams')[0]
-            d = getattr(getattr(match, 'overview'), 'teams')[1]
+            teams_overview = getattr(getattr(match, 'overview'), 'teams')
+            r = getattr(teams_overview[0], 'stats')
+            d = getattr(teams_overview[1], 'stats')
             # ------------------------------ #
             with suppress(TypeError, KeyError):
                 for f in config['min']:

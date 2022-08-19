@@ -292,3 +292,104 @@ def plot_charts(DF: pd.DataFrame):
     print()
     print('X to bank for month :')
     print((30*p/days_gone + 100)/100)
+
+
+class BinaryINF():
+    def __init__(self, df: pd.DataFrame):
+        self.df = df
+        self.y_true, self.y_pred = df['y_true'].values, df['y_pred'].values
+        
+        self.balance = self.y_true.mean()
+        self.accuracy = self._accuracy(self.y_true, self.y_pred)
+        self.precission = self._precision(self.y_true, self.y_pred)
+        self.recall = self._recall(self.y_true, self.y_pred)
+        self.confusion_matrix = self._confusion_matrix(self.y_true, self.y_pred)
+        self.fpr, self.tpr, self.threshold, self.auc, self.eer = self._roc_auc(self.y_true, self.y_pred)
+        
+    def _roc_auc(self, y_true, y_pred):
+        fpr, tpr, threshold = metrics.roc_curve(y_true,  y_pred)
+
+        fnr = 1 - tpr
+        eer_threshold = threshold[np.nanargmin(np.absolute((fnr - fpr)))]
+        eer1, eer2 = fpr[np.nanargmin(np.absolute((fnr - fpr)))], fpr[np.nanargmin(np.absolute((fnr - fpr)))]
+        eer = (eer1+eer2)/2
+        
+        auc = metrics.roc_auc_score(y_true, y_pred)
+        return fpr, tpr, threshold, auc, eer
+        
+        
+    def _accuracy(self, y_true, y_pred):
+        return 1 - np.abs(np.round(y_pred) - y_true).sum()/len(y_true)
+    
+    
+    def _precision(self, y_true, y_pred):
+        """Precision   можно   интерпретировать  как   долю 
+        объектов,  названных классификатором положительными 
+        и при этом действительно являющимися положительными
+        """
+        return metrics.precision_score(y_true, np.around(y_pred))
+    
+    
+    def _recall(self, y_true, y_pred):
+        """recall показывает, какую долю объектов 
+        положительного  класса  из  всех объектов 
+        положительного  класса   нашел   алгоритм
+        """
+        return metrics.recall_score(y_true, np.around(y_pred))
+    
+    
+    def _confusion_matrix(self, y_true, y_pred):
+        return metrics.confusion_matrix(y_true, np.around(y_pred))
+    
+    
+    def comparison_curve(self):
+        """ df columns: y_true, y_pred, r_odd, d_odd, ID"""
+        values = self.df.values
+
+        b_curve = [0]
+        m_curve = [0]
+        for game in values:
+            # Chance to win Radiant/Dire
+            b_r, b_d = 1/game[2], 1/game[3]
+            m_r, m_d = game[1], 1-game[1]
+
+            if game[0] == 1:
+                if b_r > b_d: b_curve.append(b_curve[-1] + b_r)
+                else: b_curve.append(b_curve[-1] - b_r)
+
+                if m_r > m_d: m_curve.append(m_curve[-1] + m_r)
+                else: m_curve.append(m_curve[-1] - m_r)
+
+            elif game[0] == 0:
+                if b_r < b_d: b_curve.append(b_curve[-1] + b_d)
+                else: b_curve.append(b_curve[-1] - b_d)
+
+                if m_r < m_d: m_curve.append(m_curve[-1] + m_d)
+                else: m_curve.append(m_curve[-1] - m_d)
+
+        return b_curve, m_curve
+    
+    def against_book_curve(self):
+        """ df columns: y_true, y_pred, r_odd, d_odd, ID"""
+        values = self.df.values
+
+        bank = [100]
+        for game in values:
+            # Odds Radiant/Dire
+            r_odd, d_odd = game[2], game[3]
+            # Chance to win Radiant/Dire
+            r_chance, d_chance = game[1], 1-game[1]
+
+            # Place bet on raidnat
+            if r_chance >= d_chance:
+                # 10% of babk 
+                bet = 10 * r_chance
+                # Add a profit
+                if game[0] == 1: bank.append(bank[-1] + bet*r_odd-bet)
+                else: bank.append(bank[-1] - bet)
+
+            elif r_chance < d_chance:
+                bet = 10 * d_chance
+                if game[0] == 0: bank.append(bank[-1] + bet*d_odd-bet)
+                else: bank.append(bank[-1] - bet)
+        return bank

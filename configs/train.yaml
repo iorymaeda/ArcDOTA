@@ -2,8 +2,8 @@ split:
   # if > 1 then it is number of samples
   # elif <= 1 then it is percent of train data
   league:
-    val: 200
-    test: 1000
+    val: 0
+    test: 0
   public:
     val: 0.025
     test: 0.075

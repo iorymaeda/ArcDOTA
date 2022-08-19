@@ -4,8 +4,8 @@ Project contains tools, utils and models to predict dota outcomes (win, game sta
 
 ## Content
 
-| Source              | Description                                  |
-| ------------------- | -------------------------------------------- |
+| Source           | Description                                  |
+| ---------------- | -------------------------------------------- |
 | [configs](configs/) | configuration files and utils                |
 | [parse](parse/)     | parse pipelines: games, BD                   |
 | [scarpe](scarpe/)   | scarpe pipelines: odds, teams information    |
@@ -15,12 +15,28 @@ Project contains tools, utils and models to predict dota outcomes (win, game sta
 
 //TODO: fill this out
 
+---
+
+
+
 ## Notes
 
-1. all configs stores as `yalm `
-2. all tmp files, data stores as `json`
-3. .ipynb is just for research
+1. all configs stores as `.yalm`
+2. data stores as `.json`, `.csv`, `.npy` (numpy arrays)
+3. tmp files stores as `.pkl` (python pickle)
+4. model checkpoint stores as `.torch`
+5. model checkpoint contains (key-value):
+   - "model" - model state dict
+   - "optimizer" - optimizer state dict
+   - "configs" - configs
+6. jupyter noteeboks (`.ipynb`) is just for research
+
+---
+
+
 
 ## TODO
 
 * [ ] REST API
+
+---

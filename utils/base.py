@@ -1,30 +1,39 @@
 import yaml
+import copy
 import pickle
 import pathlib
 
-from typing import Any
 
-class ConfigBase:
-    RADIANT_SIDE = [0, 1, 2, 3, 4]
-    DIRE_SIDE = [128, 129, 130, 131, 132]
-
-    def _get_config(self, config_name: str) -> dict:
-        # Go to configs folder
-        path = pathlib.Path(self._get_curernt_path())
-        path = path.parent.absolute()
-        path = path.joinpath("configs/")
-
-        if not config_name.endswith('.yaml'):
-            config_name += '.yaml'
-
-        with open(path / config_name, 'r') as stream:
-            return yaml.safe_load(stream)
-
-    def _get_curernt_path(self) -> str:
+class PathBase:
+    def _get_curernt_path(self) -> pathlib.Path:
         s=''
         for f in __file__.split('\\')[:-1]:
             s += (f + '\\') 
-        return s
+        return pathlib.Path(s)
+
+
+class ConfigBase(PathBase):
+    RADIANT_SIDE = [0, 1, 2, 3, 4]
+    DIRE_SIDE = [128, 129, 130, 131, 132]
+    # This is used in development, when we want load custom config, not from folder
+    _configs = {}
+
+    def _get_config(self, config_name: str) -> dict:
+        if not config_name.endswith('.yaml'):
+            config_path = config_name + '.yaml'
+        else:
+            config_path = copy.copy(config_name)
+            config_name = config_name.replace('.yaml', '')
+
+        if config_name in self._configs:
+            return self._configs[config_name]
+
+        # Go to configs folder
+        path = self._get_curernt_path()
+        path = path.parent.absolute()
+        path = path.joinpath("configs/")
+        with open(path / config_path, 'r') as stream:
+            return yaml.safe_load(stream)
 
 
 class SaveLoadBase:

@@ -1,10 +1,16 @@
-*.h5
 *.log
+
+# data
+*.h5
 *.json
+*.csv
 *.pkl
 *.npy
 *.torch
+
 *.exe
+*.bat
+*.cmd
 dotaconstants
 train/logs/fit
 

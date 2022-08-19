@@ -2,17 +2,28 @@
 
 preamtch:
   team_embedding:
-    embed_dim: 8
+    embed_dim: 4
 
   windowedGamesFeatureEncoder:
-    embed_dim: 64
-    dropout: 0.25
+    statsEncoder:
+      num_layers: 2
+      ff_dim: 24
+      norm: layer
+
+    embed_dim: 32
+    dropout: 0.15
   
   transformer:
-    embed_dim: 64
-    num_heads: 4
+    embed_dim: 32
+    num_heads: 2
     ff_dim: 64
     dropout: 0.15
-    num_encoder_layers: 6
+    num_encoder_layers: 4
+    skip_connection: 4
 
-  compare_fnn: null
+  compare_fnn: 
+    embed_dim: 16
+    num_heads: 2
+    ff_dim: 24
+    dropout: 0.15
+    num_encoder_layers: 2

@@ -5,26 +5,33 @@ import pandas as pd
 from typing import Literal
 
 from . import _typing
+from .tokenizer import Tokenizer
 from .base import ConfigBase
 
 
 class TSCollector(ConfigBase):
-    def __init__(self, mask_type:str = 'bool'):
+    def __init__(self, mask_type: str='bool', y_output: Literal['binary', 'crossentropy']='binary', teams_reg_output:bool=True):
+        assert y_output in ['binary', 'crossentropy']
+
+        self.y_output = y_output
         self.mask_type = mask_type
-        self.output_framework = np.array # w.i.p.
+        self.teams_reg_output = teams_reg_output
+        self.output_framework = np.array #//TODO
         self.config = self._get_config('features')
+        #//TODO:fix it
+        self.tokenizer = Tokenizer(path=self._get_curernt_path() / '../parse/output/tokenizer_league.pkl')
         
 
     def collect_window(
-        self, games: pd.DataFrame, 
+        self, games: pd.DataFrame,
         team_id: int, players: list | np.ndarray,
-        mask_type:str=None,
+        mask_type:str=None, tokenize:bool=True,
         ) -> dict:
         """Collect previous team's games
 
         Here are a few rules for the search defined by configs.
         Args:
-            - games: pd.DataFrame        - Previous DOTA/team games in ascending chronological order
+            - games: pd.DataFrame        - previous DOTA/team games in ascending chronological order
             - team_id: int               - team id in in for which we will collect window
             - players: list | np.ndarray - current players stack
 
@@ -41,6 +48,9 @@ class TSCollector(ConfigBase):
             window = self.config['league']['window_size']
             cropped = games[games_bool][-window:]
             sides_bool = sides_bool[-window:]
+
+            if tokenize and len(cropped):
+                cropped = self.tokenizer.tokenize(cropped, players=True, teams=True)
 
             output['seq_len'] = len(cropped)
             output['padded_mask'] = self.generate_padding_mask(
@@ -74,6 +84,57 @@ class TSCollector(ConfigBase):
 
         else: raise NotImplementedError
         
+
+
+    def collect_windows(
+        self, games: pd.DataFrame, anchor: pd.DataFrame,
+        mask_type:str=None, tokenize:bool=True, 
+        ) -> dict:
+
+        output = {}
+
+        r_team_id = anchor['r_team_id'].values.astype('int64')[0]
+        d_team_id = anchor['d_team_id'].values.astype('int64')[0]
+
+        r_players = anchor[[f'{s}_account_id' for s in self.RADIANT_SIDE]].values.astype('int64')[0]
+        d_players = anchor[[f'{s}_account_id' for s in self.DIRE_SIDE]].values.astype('int64')[0]
+
+        output['match_id'] = anchor['match_id'].values.astype('int64')
+        output['r_window'] = self.collect_window(
+            games=games, team_id=r_team_id, players=r_players,
+            mask_type=mask_type, tokenize=tokenize
+        )
+        output['d_window'] = self.collect_window(
+            games=games, team_id=d_team_id, players=d_players,
+            mask_type=mask_type, tokenize=tokenize
+        )
+
+        match self.y_output:
+            case 'binary':
+                output['y'] = anchor['radiant_win'].values.astype('float32')
+            case 'crossentropy':
+                output['y'] = anchor['radiant_win'].values.astype('int64')[0]
+        
+        if self.teams_reg_output:
+            output['y_r_stats'] = anchor[[f"r_{f}" for f in _typing.property.FEATURES]].values.astype('float32')
+            output['y_d_stats'] = anchor[[f"d_{f}" for f in _typing.property.FEATURES]].values.astype('float32')
+
+        tabular_features = self.config['league']['features']['tabular']
+        for feature in tabular_features:
+            if tabular_features[feature]:
+                match feature:
+                    case 'teams':
+                        output['teams'] = {
+                            'radiant': self.tokenizer.tokenize(r_team_id, teams=True) if tokenize else r_team_id,
+                            'dire': self.tokenizer.tokenize(d_team_id, teams=True) if tokenize else d_team_id,
+                        }
+                    case 'players':
+                        output['players'] = {
+                            'radiant': [self.tokenizer.tokenize(player, players=True) for player in r_players] if tokenize else r_players,
+                            'dire': [self.tokenizer.tokenize(player, players=True) for player in d_players] if tokenize else d_players,
+                        }
+        return output
+
 
     @staticmethod
     def compare_players(key: np.ndarray, quary: np.ndarray, matching: int) -> bool:

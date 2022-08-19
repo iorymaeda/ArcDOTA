@@ -7,11 +7,15 @@ public:
     duration: 900
   max: 
     duration: 5000
+  
+  # This is for team summary
   rd: # summary `r_` + `d_` stats
     min: 
-      tower_destroyd: 4
+      tower_damage: 100
       kills: 10
     max: null
+
+  # This is also for team summary
   r_d: # `r_` or `d_` stats
     min: 
       kills: 4

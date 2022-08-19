@@ -1,20 +1,41 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from ..base import ConfigBase
 from .._typing.property import FEATURES
 
-"""TODO: implement config for all modules arhitecture"""
+
+class SwiGLU(nn.Module):
+    """https://arxiv.org/abs/2002.05202"""
+    def forward(self, x:torch.Tensor):
+        # |x| : (..., Any)
+        x, gate = x.chunk(2, dim=-1)
+        return F.silu(gate) * x
+        # |x| : (..., Any//2)
+
+
+class LayerNorm(nn.Module):
+    """LayerNorm without bias"""
+    def __init__(self, dim):
+        super().__init__()
+        self.gamma = nn.Parameter(torch.ones(dim))
+        self.register_buffer("beta", torch.zeros(dim))
+
+    def forward(self, x:torch.Tensor):
+        return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)
+
 
 
 class PositionWiseFeedForwardNetwork(nn.Module):
     def __init__(self, embed_dim, ff_dim, dropout):
         super(PositionWiseFeedForwardNetwork, self).__init__()
-        
-        self.linear1 = nn.Linear(embed_dim, ff_dim)
-        self.linear2 = nn.Linear(ff_dim, embed_dim)
+        assert ff_dim%2 == 0
+
+        self.linear1 = nn.Linear(embed_dim, ff_dim, bias=True)
+        self.linear2 = nn.Linear(ff_dim, embed_dim, bias=True)
         self.dropout = nn.Dropout(dropout)
-        self.gelu = nn.GELU()
+        self.activation = nn.GELU()
 
         nn.init.normal_(self.linear1.weight, std=0.02)
         nn.init.normal_(self.linear2.weight, std=0.02)
@@ -22,7 +43,7 @@ class PositionWiseFeedForwardNetwork(nn.Module):
     def forward(self, inputs):
         # |inputs| : (batch_size, seq_len, d_model)
 
-        outputs = self.gelu(self.linear1(inputs))
+        outputs = self.activation(self.linear1(inputs))
         outputs = self.dropout(outputs)
         # |outputs| : (batch_size, seq_len, d_ff)
         
@@ -36,14 +57,15 @@ class AttentionBase(nn.Module):
     def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.15):
         super(AttentionBase, self).__init__()
         
-        self.layernorm1 = nn.LayerNorm(embed_dim, eps=1e-5)
-        self.layernorm2 = nn.LayerNorm(embed_dim, eps=1e-5)
+        self.layernorm1 = nn.LayerNorm(embed_dim)
+        self.layernorm2 = nn.LayerNorm(embed_dim)
         
         self.attn = nn.MultiheadAttention(
             embed_dim=embed_dim,
             num_heads=num_heads,
             dropout=dropout,
             batch_first=True,
+            bias=True,
         )
         self.ffn = PositionWiseFeedForwardNetwork(
             embed_dim=embed_dim,
@@ -138,22 +160,21 @@ class TransformerEncoder(AttentionBase):
 
 # ----------------------------------------------------------------------------------------------- #
 class StatsEncoder(nn.Module):
-    def __init__(self, in_dim, ff_dim, out_dim, num_layers, dropout):
+    def __init__(self, in_dim, ff_dim, out_dim, num_layers, dropout, norm='layer'):
         super(StatsEncoder, self).__init__()
         assert num_layers >= 1
 
+        norm = nn.LayerNorm if norm == 'layer' else nn.BatchNorm1d
         # -------------------------------- #
-        # TODO// implement config
-        self.config = {'norm': 'batch'}
-        norm = nn.LayerNorm if self.config['norm'] == 'layer' else nn.BatchNorm1d
-        
-        # -------------------------------- #
-        modules = [nn.Linear(in_dim, ff_dim), norm(ff_dim), nn.GELU(), nn.Dropout(dropout)]
-        for _ in range(num_layers - 1):
-            modules += [nn.Linear(ff_dim, ff_dim), norm(ff_dim), nn.GELU(), nn.Dropout(dropout)]
+        modules = [nn.Linear(in_dim, ff_dim, bias=True), nn.GELU(), nn.Dropout(dropout)]
+        for n in range(num_layers - 1):
+            if n == num_layers - 1:
+                modules += [nn.Linear(ff_dim, ff_dim, bias=True), norm(ff_dim), nn.GELU(), nn.Dropout(dropout)]
+            else:
+                modules += [nn.Linear(ff_dim, ff_dim, bias=True), nn.GELU(), nn.Dropout(dropout)]
 
-        self.stats1 = nn.Linear(ff_dim, out_dim)
-        self.stats2 = nn.Linear(ff_dim, out_dim)
+        self.stats1 = nn.Linear(ff_dim, out_dim, bias=True)
+        self.stats2 = nn.Linear(ff_dim, out_dim, bias=True)
         self.stats_encoder = nn.ModuleList(modules)
 
 
@@ -162,9 +183,9 @@ class StatsEncoder(nn.Module):
 
         output = inputs
         for layer in self.stats_encoder:
-            layer: nn.Linear | nn.BatchNorm1d | nn.GELU | nn.Dropout
+            layer: nn.Linear | LayerNorm | nn.BatchNorm1d | nn.GELU | nn.Dropout
             output: torch.Tensor
-            
+
             if isinstance(layer, nn.BatchNorm1d):
                 output = layer(output.transpose(1, 2))
                 output = output.transpose(1, 2)
@@ -192,18 +213,22 @@ class ResultEncoder(nn.Module):
 
 
 class WindowedGamesFeatureEncoder(ConfigBase, nn.Module):
-    def __init__(self, embed_dim, dropout):
+    def __init__(self):
         super(WindowedGamesFeatureEncoder, self).__init__()
-        self.config = self.get_config('features')
+        self.features_config: dict = self._get_config('features')['league']
+        self.models_config: dict = self._get_config('models')['preamtch']['windowedGamesFeatureEncoder']
 
         self.statsEncoder = StatsEncoder(   
             in_dim=len(FEATURES), 
-            ff_dim=embed_dim, 
-            out_dim=embed_dim, 
-            num_layers=2, 
-            dropout=dropout)
-        self.resultEncoder = ResultEncoder(embed_dim)
-        self.pos_embedding = nn.Embedding(self.config['league']['window_size']+1, embed_dim)
+            ff_dim=self.models_config['statsEncoder']['ff_dim'], 
+            num_layers=self.models_config['statsEncoder']['num_layers'], 
+            norm=self.models_config['statsEncoder']['norm'],
+            out_dim=self.models_config['embed_dim'], 
+            dropout=self.models_config['dropout'],
+        )
+
+        self.resultEncoder = ResultEncoder(self.models_config['embed_dim'])
+        self.pos_embedding = nn.Embedding(self.features_config['window_size']+1, self.models_config['embed_dim'])
         
 
     def forward(self, inputs: dict) -> torch.Tensor:

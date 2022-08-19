@@ -7,7 +7,7 @@ from .base import ConfigBase, SaveLoadBase
 
 
 MODE = Literal['league', 'public']
-
+numpy_int = np.int16 | np.int32 | np.int64
 
 class Tokenizer(ConfigBase, SaveLoadBase):
     """Something like BPE tokenizer for NLP, convert plyaers/tems id's to tokens.
@@ -81,9 +81,8 @@ class Tokenizer(ConfigBase, SaveLoadBase):
 
 
     def __converter(self, vocab: dict):
-        def converter(id: np.int16 | np.int32 | np.int64) -> int:
+        def converter(id: numpy_int) -> int:
             if id == 0: return 0
-
             token = vocab.get(id)
             if token: return token
             else: return 1 
@@ -91,9 +90,30 @@ class Tokenizer(ConfigBase, SaveLoadBase):
         return converter
 
 
-    def tokenize(self, df: pd.DataFrame)-> pd.DataFrame:
-        _df = df.copy()
-        if self.__fitted:
+    def __convert_players(self, token: int) -> int:
+        if token == 0: return 0
+
+        token = self.players_vocab.get(token)
+        if token: return token
+        else: return 1 
+
+
+    def __convert_teams(self, token: int) -> int:
+        if token == 0: return 0
+
+        token = self.teams_vocab.get(token)
+        if token: return token
+        else: return 1 
+
+
+    def tokenize(self, tokens: pd.DataFrame|int|numpy_int, players=False, teams=False)-> pd.DataFrame:
+        assert self.__fitted, 'Not fitted'
+
+        if not players and not teams:
+            raise Exception('Provide at least one argument: `players` or `teams`')
+
+        if isinstance(tokens, pd.DataFrame):
+            _df = tokens.copy()
             team_converter, player_converter = self.__build_vectorizers()
             
             players_columns = [f'{s}_account_id' for s in self.RADIANT_SIDE + self.DIRE_SIDE]
@@ -102,23 +122,29 @@ class Tokenizer(ConfigBase, SaveLoadBase):
 
             _df[players_columns] = player_converter(players_arr)
             _df[['r_team_id', 'd_team_id']] = team_converter(teams_arr)
-
             return _df 
-        else: raise Exception('Not fitted')
+
+        elif isinstance(tokens, (int, numpy_int)):
+            assert not (players and teams), 'Provide only `players` or `teams`'
+            if players: return self.__convert_players(tokens)
+            if teams: return self.__convert_teams(tokens)
 
 
     def evaluate(self, df: pd.DataFrame) -> pd.DataFrame:
+        assert self.__fitted, 'Not fitted'
+
         _df = df.copy()
-        if self.__fitted:
-            _ = [f'{s}_account_id' for s in self.RADIANT_SIDE + self.DIRE_SIDE]
-            b = ((5 - (_df[_].values[:,:5] == 1).sum(axis=1) >= self.config['league']['players_rules']['min_good_players_in_stack']) &\
-            (5 - (_df[_].values[:,5:] == 1).sum(axis=1) >= self.config['league']['players_rules']['min_good_players_in_stack']))
 
-            _df = _df[b]
-            _df = _df[(_df[['r_team_id', 'd_team_id']] == 1).sum(axis=1) == 0]
+        # Evaluate players
+        _ = [f'{s}_account_id' for s in self.RADIANT_SIDE + self.DIRE_SIDE]
+        b = ((5 - (_df[_].values[:,:5] == 1).sum(axis=1) >= self.config['league']['players_rules']['min_good_players_in_stack']) &\
+        (5 - (_df[_].values[:,5:] == 1).sum(axis=1) >= self.config['league']['players_rules']['min_good_players_in_stack']))
 
-            return _df 
-        else: raise Exception('Not fitted')
+        # Evaluate teams
+        _df = _df[b]
+        _df = _df[(_df[['r_team_id', 'd_team_id']] == 1).sum(axis=1) == 0]
+        return _df 
+
 
 
     def __build_players_vocab(self, const=None) -> dict[int, int]:
