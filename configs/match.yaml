@@ -18,7 +18,7 @@ public:
   # This is also for team summary
   r_d: # `r_` or `d_` stats
     min: 
-      kills: 4
+      kills: 2
     max: null
 
 
