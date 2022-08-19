@@ -1,6 +1,6 @@
-# DOTA 2 outcome prediction
+# ArcDOTA 😏
 
-Project contains tools, utils and models to predict dota outcomes (win, game stats, e.t.c.)
+Project contains tools, utils and models to predict dota outcomes (win, game stats, e.t.c.) 
 
 ## Content
 
