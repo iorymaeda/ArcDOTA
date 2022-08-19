@@ -12,6 +12,7 @@ class BaseTrainer(ConfigBase):
     sheduler: torch.optim.lr_scheduler._LRScheduler | None
     model: nn.Module
     device: str
+    batch_to_device = batch_to_device
 
     def predict(self, dataset: DataLoader) -> list[torch.Tensor]:
         self.model.eval()

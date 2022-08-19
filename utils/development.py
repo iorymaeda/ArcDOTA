@@ -147,6 +147,7 @@ class SessionHelper:
 
 
 class ModelLoader(PathBase):
+    #//TODO: move this to nn
     def __init__(self, device:str='cpu'):
         self.device = device
 
@@ -186,7 +187,7 @@ class ModelLoader(PathBase):
             for config in checkpoint['configs']:
                 ConfigBase._configs[config] = checkpoint['configs'][config]
                 
-            model = PrematchModel(**checkpoint['kwargs'])
+            model = PrematchModel(**checkpoint['kwargs']).eval()
             model.to(device)
             model.load_state_dict(checkpoint['model'])
             models[num] = model

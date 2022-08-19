@@ -1,7 +1,6 @@
 import os
 import asyncio
 import datetime
-from re import T
 import pandas as pd
 
 # import pymongo
@@ -9,7 +8,7 @@ import aiohttp
 import aiofiles
 
 
-from . import _typing, parsers, evaluator, tokenizer
+from . import _typing, parsers, evaluator, tokenizer, scalers
 from .time_series import TSCollector
 from .exceptions import steam, opendota, property
 from .base import ConfigBase
@@ -199,18 +198,24 @@ class PropertyWrapper(ConfigBase):
         self.steam_wrapper = SteamWrapper()
 
         path = self._get_curernt_path()
-        path = path.parent.resolve() / "scarpe"
+        path = path.parent.resolve()
         self.opendota_parser = parsers.OpendotaParser(
-            dotaconstants_path= path / 'dotaconstants',
-            leagues_path=       path / 'output/leagues.json', 
-            prize_pools_path=   path / 'output/prize_pools.json')
+            dotaconstants_path= path / 'scarpe/dotaconstants',
+            leagues_path=       path / 'scarpe/output/leagues.json', 
+            prize_pools_path=   path / 'scarpe/output/prize_pools.json')
         self.property_parser = parsers.PropertyParser()
         self.evaluator = evaluator.Evaluator()
+        self.scaler = scalers.DotaScaler(path=path / "inference/scaler_league.pkl")
 
         # //TODO: fix tokenizer, put it together with a model
-        self.tokenizer = tokenizer.Tokenizer(path=self._get_curernt_path() / "../parse/output/tokenizer_league.pkl")
+        self.tokenizer = tokenizer.Tokenizer(path=path / "inference/tokenizer_league.pkl")
         # //TODO: mask_type, y_output and anothers hyper-parameters put to configs
-        self.collector = TSCollector(mask_type='bool', y_output='crossentropy', teams_reg_output=False)
+        self.collector = TSCollector(
+            mask_type='bool', 
+            y_output='crossentropy', 
+            teams_reg_output=False,
+            tokenizer_path=path / "inference/tokenizer_league.pkl",
+            )
 
 
     async def collect_players_stack(self, team: int) -> list[int]:
@@ -220,7 +225,7 @@ class PropertyWrapper(ConfigBase):
         return stack[:5]
 
 
-    async def prematch(self, team1: int, team2: int) -> dict:
+    async def prematch(self, team1: int, team2: int, match_id:int=None) -> dict:
         assert team1 != 0 and team2 != 0
         
         tokenized_team1 = self.tokenizer.tokenize(team1, teams=True)
@@ -233,11 +238,12 @@ class PropertyWrapper(ConfigBase):
         await self.steam_wrapper.reset()
         await self.opendota_wrapper.reset()
 
-        corpus = await self.prematch_corpus(team1=team1, team2=team2)
+        corpus = await self.prematch_corpus(team1=team1, team2=team2, match_id=match_id)
         print("prematch_corpus parsed")
         anchor = await self.prematch_anchor(team1=team1, team2=team2)
         print("prematch_anchor parsed")
 
+        corpus = self.scaler.transform(corpus, 'yeo-johnson', mode='both')
         print('collect windows')
         sample = self.collector.collect_windows(
             games=corpus, anchor=anchor, tokenize=True, 
@@ -258,7 +264,10 @@ class PropertyWrapper(ConfigBase):
         return sample
 
 
-    async def prematch_anchor(self, team1: int, team2: int):
+    async def prematch_anchor(self, team1: int, team2: int, match_id:int|None=None):
+        if match_id is not None:
+            pass
+
         r_stack = await self.collect_players_stack(team1)
         d_stack = await self.collect_players_stack(team2)
         anchor = {
@@ -273,10 +282,15 @@ class PropertyWrapper(ConfigBase):
         return anchor
 
 
-    async def prematch_corpus(self, team1: int, team2: int):
+    async def prematch_corpus(self, team1: int, team2: int, match_id:int|None=None):
         team1_matches = await self.opendota_wrapper.fetch_team_games(team1)
         team2_matches = await self.opendota_wrapper.fetch_team_games(team2)
 
+        if match_id is not None:
+            team1_matches = [match for match in team1_matches if match['match_id'] < match_id]
+            team2_matches = [match for match in team2_matches if match['match_id'] < match_id]
+
+        # //TODO: optimize teams matches, remove duplicatase
         print('parse team1 matches')
         team1_matches = await self.parse_team_matches(team1_matches)
         print('parse team2 matches')
@@ -284,6 +298,8 @@ class PropertyWrapper(ConfigBase):
 
         print("property_parser")
         corpus = self.property_parser(team1_matches + team2_matches)
+        
+
         print(len(corpus))
         # //TODO: FIXIT, this drop should be in parsing, (IN EVALUATOR)
         corpus = corpus[~(corpus['leavers'] > 0)]
@@ -295,17 +311,22 @@ class PropertyWrapper(ConfigBase):
         """Synchronous parse //TODO:improve it"""
         window_size = self._get_config('features')['league']['window_size']
 
+        ids = set()
         team_matches = []   
         for idx, tmatch in enumerate(matches):
+
+            match_id = tmatch['match_id']
             print(f"parse {idx} game")
-            if self.tokenizer.tokenize(tmatch['opposing_team_id'], teams=True) > 1:
+            if (self.tokenizer.tokenize(tmatch['opposing_team_id'], teams=True) > 1 and
+                match_id not in ids):
                 
                 with suppress(opendota.ParsingNotPossible, trigger=lambda: print("ParsingNotPossible")):
-                    od_match = await self.opendota_wrapper.force_fetch_game(tmatch['match_id'])
+                    od_match = await self.opendota_wrapper.force_fetch_game(match_id)
                     property_match = self.opendota_parser(od_match)
 
                     if self.evaluator(property_match):
                         team_matches.append(property_match)
+                        ids.add(match_id)
                     else:
                         print(f"Skipped unevaluated")
 

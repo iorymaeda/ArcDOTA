@@ -1,8 +1,9 @@
 """This module for any type of time-series"""
 
+from typing import Literal
+
 import numpy as np
 import pandas as pd 
-from typing import Literal
 
 from . import _typing
 from .tokenizer import Tokenizer
@@ -10,7 +11,7 @@ from .base import ConfigBase
 
 
 class TSCollector(ConfigBase):
-    def __init__(self, mask_type: str='bool', y_output: Literal['binary', 'crossentropy']='binary', teams_reg_output:bool=True):
+    def __init__(self, mask_type: str='bool', y_output: Literal['binary', 'crossentropy']='binary', teams_reg_output:bool=True, tokenizer_path:str=None):
         assert y_output in ['binary', 'crossentropy']
 
         self.y_output = y_output
@@ -18,8 +19,11 @@ class TSCollector(ConfigBase):
         self.teams_reg_output = teams_reg_output
         self.output_framework = np.array #//TODO
         self.config = self._get_config('features')
+
         #//TODO:fix it
-        self.tokenizer = Tokenizer(path=self._get_curernt_path() / '../parse/output/tokenizer_league.pkl')
+        if tokenizer_path is None:
+            tokenizer_path = self._get_curernt_path() / '../parse/output/tokenizer_league.pkl'
+        self.tokenizer = Tokenizer(path=tokenizer_path)
         
 
     def collect_window(

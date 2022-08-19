@@ -1,3 +1,9 @@
+"""
+    Old migrated shit-code
+"""
+
+raise NotImplementedError
+
 import numpy as np
 import pandas as pd
 import seaborn as sns

@@ -37,6 +37,8 @@ class DotaScaler(ConfigBase, SaveLoadBase):
                 'players': {},
                 'teams': {},
             }
+            self.__fitted_p = False
+            self.__fitted_t = False
             
 
     def save(self, path: str):
@@ -84,6 +86,11 @@ class DotaScaler(ConfigBase, SaveLoadBase):
 
             self.data[mode][f]['box-cox'] = bc_pt
             self.data[mode][f]['yeo-johnson'] = yj_pt
+
+        if mode == 'teams':
+            self.__fitted_t = True
+        elif mode == 'players':
+            self.__fitted_p = True
         return self 
             
 
@@ -107,8 +114,7 @@ class DotaScaler(ConfigBase, SaveLoadBase):
         that it is in the given range 
         If `minmax` features will be scaled in range [0, 1]
         If `minmax2` features will be scaled in range [-1, 1]
-        If `minmax2` and provided arguments `a` & `b features will be scaled in 
-            range [`a`, `b`]
+        If `minmax2` and provided arguments `a` & `b` features will be scaled in range [`a`, `b`]
 
         ----------------------------------------------------------------------
         //TODO: write about standart transform
@@ -121,10 +127,16 @@ class DotaScaler(ConfigBase, SaveLoadBase):
         # ------------------------------ #
         X = X.copy()
         if mode == 'players':
+            assert self.__fitted_p
             sides = self.RADIANT_SIDE + self.DIRE_SIDE
+            
         elif mode == 'teams':
+            assert self.__fitted_t
             sides = ['r', 'd']
+
         elif mode == 'both':
+            assert self.__fitted_p
+            assert self.__fitted_t
             X = self.transform(X=X, method=method, mode='teams', **kwargs)
             X = self.transform(X=X, method=method, mode='players', **kwargs)
             return X

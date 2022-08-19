@@ -528,14 +528,9 @@ class PropertyParser(ConfigBase):
             new_rows.append(c)
 
         df = pd.concat(
-            [
-                df.drop(['league', 'players', 'teams'], axis=1), 
-                pd.DataFrame(new_rows),
-            ], axis=1)
-        df.sort_values(
-            by='start_time', 
-            inplace=True,
-        )
+            objs=[df.drop(['league', 'players', 'teams'], axis=1),  pd.DataFrame(new_rows)], 
+            axis=1
+        ).sort_values(by='start_time').drop_duplicates('match_id')
         return df
 
 
