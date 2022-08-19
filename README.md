@@ -17,8 +17,6 @@ Project contains tools, utils and models to predict dota outcomes (win, game sta
 
 ---
 
-
-
 ## Notes
 
 1. all configs stores as `.yalm`
@@ -33,10 +31,13 @@ Project contains tools, utils and models to predict dota outcomes (win, game sta
 
 ---
 
-
-
 ## TODO
 
-* [ ] REST API
+* [X] REST API
+* [ ] Pretrain:
+  * [ ] Teams
+  * [ ] Players
+  * [ ] Heroes
+* [ ] Build evaluate platform
 
 ---
