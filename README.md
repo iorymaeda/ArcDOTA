@@ -1,15 +1,16 @@
 # ArcDOTA 😏
 
-Project contains tools, utils and models to predict dota outcomes (win, game stats, e.t.c.) 
+Project contains tools, utils and models to predict dota outcomes (win, game stats, e.t.c.)
 
 ## Content
 
-| Source           | Description                                  |
-| ---------------- | -------------------------------------------- |
-| [configs](configs/) | configuration files and utils                |
-| [parse](parse/)     | parse pipelines: games, BD                   |
-| [scarpe](scarpe/)   | scarpe pipelines: odds, teams information    |
-| [train](train/)     | train pipelines: prematch model, draft model |
+| Source               | Description                                  |
+| -------------------- | -------------------------------------------- |
+| [configs](configs/)     | configuration files and utils                |
+| [inference](inference/) | inference scripts (rest api)                 |
+| [parse](parse/)         | parse pipelines: games, BD                   |
+| [scarpe](scarpe/)       | scarpe pipelines: odds, teams information    |
+| [train](train/)         | train pipelines: prematch model, draft model |
 
 ## Architecture
 
@@ -33,7 +34,9 @@ Project contains tools, utils and models to predict dota outcomes (win, game sta
 
 ## TODO
 
-* [X] REST API
+* [ ] REST API
+  * [X] Prematch
+  * [ ] With drafts
 * [ ] Pretrain:
   * [ ] Teams
   * [ ] Players
