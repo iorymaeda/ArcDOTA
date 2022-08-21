@@ -32,26 +32,28 @@ def read_root():
 
 @app.get("/predict/prematch")
 async def predict_prematch(team1:int, team2:int, key:str|None=None, match_id:int|None=None):
-    if key in keys:
-        wrapper = utils.wrappers.PropertyWrapper()
-        data = await wrapper.prematch(team1=team1, team2=team2, match_id=match_id)
-        data = utils.nn.tools.batch_to_tensor(data)
-        data = utils.nn.tools.batch_to_device(data, DEVICE)
+    try:
+        if key in keys:
+            wrapper = utils.wrappers.PropertyWrapper()
+            data = await wrapper.prematch(team1=team1, team2=team2, match_id=match_id)
+            data = utils.nn.tools.batch_to_tensor(data)
+            data = utils.nn.tools.batch_to_device(data, DEVICE)
 
-        preds = []
-        with torch.no_grad():
-            for m_key in models:
-                model = models[m_key]
-                pred: torch.Tensor = model(data)
-                pred = pred.softmax(dim=1)
-                preds.append(pred[:, 1])
+            preds = []
+            with torch.no_grad():
+                for m_key in models:
+                    model = models[m_key]
+                    pred: torch.Tensor = model(data)
+                    pred = pred.softmax(dim=1)
+                    preds.append(pred[:, 1])
 
-        preds = torch.vstack(preds)
-        ensemble_mean_pred = preds.mean(dim=0)
-        ensemble_mean_pred = ensemble_mean_pred.item()
-        print(ensemble_mean_pred)
-        return ensemble_mean_pred
-
+            preds = torch.vstack(preds)
+            ensemble_mean_pred = preds.mean(dim=0)
+            ensemble_mean_pred = ensemble_mean_pred.item()
+            print(ensemble_mean_pred)
+            return ensemble_mean_pred
+    except Exception as e:
+        return e
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8100)
