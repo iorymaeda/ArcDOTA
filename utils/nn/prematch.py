@@ -19,58 +19,66 @@ class PrematchModel(ConfigBase, nn.Module):
         self.emb_storage = {}
         self.regression = regression
         self.features_config: dict = self._get_config('features')['league']
-        self.models_config: dict = self._get_config('models')['preamtch']
+        self.model_config: dict = self._get_config('models')['preamtch']
 
         # --------------------------------------------------------- #
         if self.features_config['features']['tabular']['teams']:
             self.team_embedding = nn.Embedding(
                 num_embeddings=teams_num+1, 
-                embedding_dim=self.models_config['team_embedding']['embed_dim'],
+                embedding_dim=self.model_config['team_embedding']['embed_dim'],
             )
+
+        # --------------------------------------------------------- #
         self.windowedGamesFeatureEncoder = blocks.WindowedGamesFeatureEncoder()
 
         # --------------------------------------------------------- #
-        modules = [
-            blocks.TransformerEncoder(
-                embed_dim=self.models_config['transformer']['embed_dim'], 
-                num_heads=self.models_config['transformer']['num_heads'], 
-                ff_dim=self.models_config['transformer']['ff_dim'], 
-                dropout=self.models_config['transformer']['dropout'],
-            ) for _ in range(self.models_config['transformer']['num_encoder_layers'])
-        ]
+        # windows_seq_encoder
+        if self.model_config['windows_seq_encoder_type'] == 'transformer':
+            modules = [
+                blocks.TransformerEncoder(**self.model_config['windows_seq_encoder']['transformer'])
+                for _ in range(self.model_config['windows_seq_encoder']['transformer']['num_encoder_layers'])
+            ]
 
-        if self.models_config['windowedGamesFeatureEncoder']['embed_dim'] != self.models_config['transformer']['embed_dim']:
-            modules = [nn.Linear(
-                in_features=self.models_config['windowedGamesFeatureEncoder']['embed_dim'], 
-                out_features=self.models_config['transformer']['embed_dim'],
-            )] + modules
+            if self.model_config['windowedGamesFeatureEncoder']['embed_dim'] != self.model_config['windows_seq_encoder']['transformer']['embed_dim']:
+                modules = [nn.Linear(
+                    in_features=self.model_config['windowedGamesFeatureEncoder']['embed_dim'], 
+                    out_features=self.model_config['windows_seq_encoder']['transformer']['embed_dim'],
+                )] + modules
 
-        self.transformer = nn.ModuleList(modules)
+            self.windows_seq_encoder = nn.ModuleList(modules)
+            self.windows_seq_encoder_output_dim = self.model_config['windows_seq_encoder']['transformer']['embed_dim']
+
+        elif self.model_config['windows_seq_encoder'] == 'GRU':
+            self.windows_seq_encoder = blocks.RNN(
+                RNN_type='GRU', input_size=self.model_config['windowedGamesFeatureEncoder']['embed_dim'], 
+                **self.model_config['windows_seq_encoder']['GRU'])
+            self.windows_seq_encoder_output_dim = self.model_config['windows_seq_encoder']['GRU']['embed_dim']
+
         
         # --------------------------------------------------------- #
-        compare_fnn_dim_in = self.models_config['transformer']['embed_dim']
+        # compare_encoder
         if self.features_config['features']['tabular']['teams']:
-            compare_fnn_dim_in += self.models_config['team_embedding']['embed_dim']
+            self.windows_seq_encoder_output_dim += self.model_config['team_embedding']['embed_dim']
 
         self.compare_fnn = nn.Linear(
-            in_features=compare_fnn_dim_in, 
-            out_features=self.models_config['compare_fnn']['embed_dim'],
+            in_features=self.windows_seq_encoder_output_dim, 
+            out_features=self.model_config['compare_fnn']['embed_dim'],
             bias=False,
         )
 
-        self.compare_embedding = nn.Embedding(2, self.models_config['compare_fnn']['embed_dim'])
+        self.compare_embedding = nn.Embedding(2, self.model_config['compare_fnn']['embed_dim'])
         self.compare = nn.Sequential(
             *([
                 blocks.TransformerEncoder(
-                    embed_dim=self.models_config['compare_fnn']['embed_dim'], 
-                    num_heads=self.models_config['compare_fnn']['num_heads'], 
-                    ff_dim=self.models_config['compare_fnn']['ff_dim'], 
-                    dropout=self.models_config['compare_fnn']['dropout'],
-                ) for _ in range(self.models_config['compare_fnn']['num_encoder_layers'])
+                    embed_dim=self.model_config['compare_fnn']['embed_dim'], 
+                    num_heads=self.model_config['compare_fnn']['num_heads'], 
+                    ff_dim=self.model_config['compare_fnn']['ff_dim'], 
+                    dropout=self.model_config['compare_fnn']['dropout'],
+                ) for _ in range(self.model_config['compare_fnn']['num_encoder_layers'])
                 ])
         )
         self.linear = nn.Linear(
-            in_features=self.models_config['compare_fnn']['embed_dim'], 
+            in_features=self.model_config['compare_fnn']['embed_dim'], 
             out_features=len(FEATURES) if regression else 1, 
             bias=False
         )
@@ -82,29 +90,17 @@ class PrematchModel(ConfigBase, nn.Module):
         # |window| : (batch_size, seq_len, embed_dim)
 
         # --------------------------------------------------------- #
-        r_window = self.__forward_through_transformer(
+        r_window = self.__forward_through_seq_encoder(
             window=r_window, 
-            key_padding_mask=inputs['r_window']['padded_mask'])
-        # |window| : (batch_size, seq_len, embed_dim)
-        d_window = self.__forward_through_transformer(
-            window=d_window, 
-            key_padding_mask=inputs['d_window']['padded_mask'])
-        # |window| : (batch_size, seq_len, embed_dim)
-
-        # --------------------------------------------------------- #
-        # Pooling
-        # pooled_r = torch.mean(r_window, dim=1)
-        # pooled_d = torch.mean(d_window, dim=1)
-        pooled_r = self.__global_avg_pooling(
-            window=r_window,
             seq_len=inputs['r_window']['seq_len'],
             key_padding_mask=inputs['r_window']['padded_mask'])
-        # |pooled| : (batch_size, embed_dim)
-        pooled_d = self.__global_avg_pooling(
-            window=r_window,
+        # |window| : (batch_size, embed_dim)
+        d_window = self.__forward_through_seq_encoder(
+            window=d_window, 
             seq_len=inputs['d_window']['seq_len'],
-            key_padding_mask=inputs['d_window']['padded_mask'])  
-        # |pooled| : (batch_size, embed_dim)
+            key_padding_mask=inputs['d_window']['padded_mask'])
+        # |window| : (batch_size, embed_dim)
+
 
         # --------------------------------------------------------- #
         if self.features_config['features']['tabular']['teams']:
@@ -170,26 +166,44 @@ class PrematchModel(ConfigBase, nn.Module):
         return torch.arange(inputs.size(1), device=inputs.device, dtype=torch.int64).repeat(inputs.size(0), 1)
 
 
-    def __forward_through_transformer(self, window: torch.Tensor, key_padding_mask: torch.Tensor=None) -> torch.FloatTensor:
-        skip_connection = None
-        for idx, layer in enumerate(self.transformer):
-            if isinstance(layer, nn.Linear):
-                window = layer(window)
+    def __forward_through_seq_encoder(self, window: torch.Tensor, key_padding_mask:torch.Tensor=None, seq_len:torch.Tensor=None) -> torch.FloatTensor:
+        if self.models_config['windows_seq_encoder'] == 'transformer':
+            self.windows_seq_encoder: nn.ModuleList
 
-            elif isinstance(layer, blocks.TransformerEncoder):
-                # if idx%self.models_config['transformer']['skip_connection'] == 0:
-                #     if skip_connection is not None:
-                #         window = skip_connection + window
-                #     window = skip_connection = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
-                # else:
-                
-                # However a ``` `True` value indicates that the corresponding key value will be IGNORED ```
-                # for some reasons irl it's the other way around
-                window = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
+            skip_connection = None
+            for idx, layer in enumerate(self.windows_seq_encoder):
+                if isinstance(layer, nn.Linear):
+                    window = layer(window)
 
-            else: raise Exception
-            
-        return window
+                elif isinstance(layer, blocks.TransformerEncoder):
+                    if (idx+1)%self.models_config['transformer']['skip_connection'] == 0:
+                        window = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
+                        window = skip_connection = window + skip_connection
+
+                    elif idx == 0:
+                        window = skip_connection = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
+
+                    else:
+                        # However a ``` `True` value indicates that the corresponding key value will be IGNORED ```
+                        # for some reasons irl it's the other way around
+                        window = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
+                else: raise Exception
+
+            window: torch.Tensor 
+            # |window| : (batch_size, seq_len, embed_dim
+            pooled_w = self.__global_avg_pooling(
+                window=window,
+                seq_len=seq_len,
+                key_padding_mask=key_padding_mask)
+            # |pooled| : (batch_size, embed_dim)
+            return pooled_w
+
+        elif self.models_config['windows_seq_encoder'] == 'GRU':
+            self.windows_seq_encoder: nn.Module
+
+            pooled_w = self.windows_seq_encoder(window)
+            # |pooled| : (batch_size, embed_dim)
+            return pooled_w
 
 
     def __global_avg_pooling(self, window: torch.Tensor, seq_len: torch.Tensor, key_padding_mask: torch.Tensor)  -> torch.FloatTensor:

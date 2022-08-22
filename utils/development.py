@@ -183,7 +183,7 @@ class ModelLoader(PathBase):
         path = self.__get_prematch_folder()
         models = {}
         for num in ensemble_nums:
-            checkpoint = torch.load(path / f'Ensemble {num} {name}.torch')
+            checkpoint = torch.load(path / f'Ensemble {num} {name}.torch', map_location=torch.device('cpu'))
             for config in checkpoint['configs']:
                 ConfigBase._configs[config] = checkpoint['configs'][config]
                 

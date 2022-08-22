@@ -1,6 +1,7 @@
 *.log
 
 # data
+*.rar
 *.h5
 *.json
 *.csv
