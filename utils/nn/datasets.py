@@ -1,7 +1,7 @@
-import tqdm
 import random
 from typing import Literal
 
+import tqdm
 import pandas as pd
 from torch.utils.data import Dataset as D
 

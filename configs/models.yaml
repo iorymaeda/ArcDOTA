@@ -1,6 +1,9 @@
 # This config stores hyperparametrs configuration
 
 preamtch:
+  windows_seq_encoder_type: GRU
+  compare_encoder_type: linear
+
   team_embedding:
     embed_dim: 4
 
@@ -9,21 +12,36 @@ preamtch:
       num_layers: 2
       ff_dim: 24
       norm: layer
-
     embed_dim: 32
     dropout: 0.15
   
-  transformer:
-    embed_dim: 32
-    num_heads: 2
-    ff_dim: 64
-    dropout: 0.15
-    num_encoder_layers: 4
-    skip_connection: 4
+  windows_seq_encoder:
+    transformer:
+      embed_dim: 32
+      num_heads: 2
+      ff_dim: 64
+      dropout: 0.15
+      num_encoder_layers: 4
+      skip_connection: 4
 
-  compare_fnn: 
-    embed_dim: 16
-    num_heads: 2
-    ff_dim: 24
-    dropout: 0.15
-    num_encoder_layers: 2
+    GRU:
+      embed_dim: 64
+      dropout: 0.15
+      num_layers: 4
+      attention: True
+      bidirectional: True
+      output_hidden: True
+
+  compare_encoder: 
+    transformer:
+      embed_dim: 16
+      num_heads: 2
+      ff_dim: 24
+      dropout: 0.15
+      num_encoder_layers: 2
+
+    linear: 
+      in_fnn_dims: [32, 24]
+      compare_dims: [64, 32, 16]
+      dropout: 0.15
+      bias: False
