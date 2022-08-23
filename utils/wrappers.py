@@ -198,6 +198,7 @@ class PropertyWrapper(ConfigBase):
         self.steam_wrapper = SteamWrapper()
 
         path = self._get_curernt_path()
+        print(path)
         path = path.parent.resolve()
         self.opendota_parser = parsers.OpendotaParser(
             dotaconstants_path= path / 'scarpe/dotaconstants',
