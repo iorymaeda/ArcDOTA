@@ -25,12 +25,12 @@ preamtch:
       skip_connection: 4
 
     GRU:
-      embed_dim: 64
+      embed_dim: 32
       dropout: 0.15
       num_layers: 4
-      attention: True
-      bidirectional: True
-      output_hidden: True
+      attention: False
+      bidirectional: False
+      output_hidden: False
 
   compare_encoder: 
     transformer:
@@ -42,6 +42,12 @@ preamtch:
 
     linear: 
       in_fnn_dims: [32, 24]
-      compare_dims: [64, 32, 16]
+      compare_fnn_dims: [32, 16]
+      out_dim: 2
       dropout: 0.15
       bias: False
+
+    subtract:
+      in_fnn_dims: [32, 24]
+      compare_fnn_dims: [32, 16]
+      dropout: 0.15

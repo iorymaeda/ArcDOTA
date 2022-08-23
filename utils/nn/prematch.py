@@ -44,44 +44,28 @@ class PrematchModel(ConfigBase, nn.Module):
                     in_features=self.model_config['windowedGamesFeatureEncoder']['embed_dim'], 
                     out_features=self.model_config['windows_seq_encoder']['transformer']['embed_dim'],
                 )] + modules
-
             self.windows_seq_encoder = nn.ModuleList(modules)
-            self.windows_seq_encoder_output_dim = self.model_config['windows_seq_encoder']['transformer']['embed_dim']
+            windows_seq_encoder_output_dim = self.model_config['windows_seq_encoder']['transformer']['embed_dim']
 
-        elif self.model_config['windows_seq_encoder'] == 'GRU':
+
+        elif self.model_config['windows_seq_encoder_type'] == 'GRU':
             self.windows_seq_encoder = blocks.RNN(
                 RNN_type='GRU', input_size=self.model_config['windowedGamesFeatureEncoder']['embed_dim'], 
                 **self.model_config['windows_seq_encoder']['GRU'])
-            self.windows_seq_encoder_output_dim = self.model_config['windows_seq_encoder']['GRU']['embed_dim']
 
+            windows_seq_encoder_output_dim = self.model_config['windows_seq_encoder']['GRU']['embed_dim']
+            if self.model_config['windows_seq_encoder']['GRU']['bidirectional']:
+                windows_seq_encoder_output_dim *= 2
+
+        else: raise Exception
         
         # --------------------------------------------------------- #
-        # compare_encoder
+        # output head
         if self.features_config['features']['tabular']['teams']:
-            self.windows_seq_encoder_output_dim += self.model_config['team_embedding']['embed_dim']
+            windows_seq_encoder_output_dim += self.model_config['team_embedding']['embed_dim']
 
-        self.compare_fnn = nn.Linear(
-            in_features=self.windows_seq_encoder_output_dim, 
-            out_features=self.model_config['compare_fnn']['embed_dim'],
-            bias=False,
-        )
+        self.output_head = blocks.OutputHead(in_dim=windows_seq_encoder_output_dim, regression=regression)
 
-        self.compare_embedding = nn.Embedding(2, self.model_config['compare_fnn']['embed_dim'])
-        self.compare = nn.Sequential(
-            *([
-                blocks.TransformerEncoder(
-                    embed_dim=self.model_config['compare_fnn']['embed_dim'], 
-                    num_heads=self.model_config['compare_fnn']['num_heads'], 
-                    ff_dim=self.model_config['compare_fnn']['ff_dim'], 
-                    dropout=self.model_config['compare_fnn']['dropout'],
-                ) for _ in range(self.model_config['compare_fnn']['num_encoder_layers'])
-                ])
-        )
-        self.linear = nn.Linear(
-            in_features=self.model_config['compare_fnn']['embed_dim'], 
-            out_features=len(FEATURES) if regression else 1, 
-            bias=False
-        )
 
 
     def forward(self, inputs: dict):
@@ -100,74 +84,48 @@ class PrematchModel(ConfigBase, nn.Module):
             seq_len=inputs['d_window']['seq_len'],
             key_padding_mask=inputs['d_window']['padded_mask'])
         # |window| : (batch_size, embed_dim)
-
+        self.emb_storage['r_window'] = r_window
+        self.emb_storage['d_window'] = d_window
 
         # --------------------------------------------------------- #
         if self.features_config['features']['tabular']['teams']:
             team_r = self.team_embedding(inputs['teams']['radiant'])
-            pooled_r = torch.cat([pooled_r, team_r], dim=-1)
+            r_window = torch.cat([r_window, team_r], dim=-1)
             # |pooled| : (batch_size, embed_dim+team_emb_dim)
 
             team_d = self.team_embedding(inputs['teams']['dire'])
-            pooled_d = torch.cat([pooled_d, team_d], dim=-1)
+            d_window = torch.cat([d_window, team_d], dim=-1)
             # |pooled| : (batch_size, embed_dim+team_emb_dim)
 
         # --------------------------------------------------------- #
-        pooled_r = pooled_r.unsqueeze(1)
-        # |pooled| : (batch_size, 1, embed_dim+team_emb_dim)
-        pooled_d = pooled_d.unsqueeze(1)
-        # |pooled| : (batch_size, 1, embed_dim+team_emb_dim)
-
-        pooled = torch.cat([pooled_d, pooled_r], dim=1)
-        # |pooled| : (batch_size, 2, embed_dim+team_emb_dim)
-
-        # Store embeddings
-        self.emb_storage['pooled'] = pooled
-
-        pooled = self.compare_fnn(pooled)
-        # |pooled| : (batch_size, 2, compare_fnn-embed_dim)
-
-        # Store embeddings
-        self.emb_storage['pooled'] = pooled
-
-        # Add pos info
-        pooled = pooled + self.compare_embedding(self.__generate_pos_tokens(pooled))
-        # |pooled| : (batch_size, 2, compare_fnn-embed_dim)
-
-        if self.regression:
-            compare: torch.Tensor = self.compare(pooled)
-            # |compare| : (batch_size, 2, compare_fnn-embed_dim)
-
-            # Store embeddings
-            self.emb_storage['compared'] = compare
-
-            compare = self.linear(compare)
-            # |compare| : (batch_size, 2, len(FEATURES))
-            return compare[:, 1], compare[:, 0]
-            # |compare| : (batch_size, len(FEATURES))
-
-        else:
-            compare: torch.Tensor = self.compare(pooled)
-            # |compare| : (batch_size, 2, compare_fnn-embed_dim)
-
-            # Store embeddings
-            self.emb_storage['compared'] = compare
-
-            compare = self.linear(compare)
-            # |compare| : (batch_size, 2, 1)
-            # index 0 - dire
-            # index 1 - radiant
-            compare = compare.squeeze(2)
-            # |compare| : (batch_size, 2)
-            return compare
+        output = self.output_head(r_window, d_window)
+        return output
 
 
-    def __generate_pos_tokens(self, inputs: torch.Tensor) -> torch.Tensor:
-        return torch.arange(inputs.size(1), device=inputs.device, dtype=torch.int64).repeat(inputs.size(0), 1)
+    def predict(self, inputs: dict):
+        self.eval()
+        with torch.no_grad():
+            output: torch.Tensor = self.forward(inputs)
+            output = output.cpu()
+
+        if self.regression: 
+            return output
+
+        elif len(output.shape) == 2:
+            if output.shape[1] == 2:
+                output = output.softmax(dim=1)
+                return output[:, 1]
+                
+            if output.shape[1] == 1:
+                return output.sigmoid()
+
+        elif len(output.shape) == 1:
+            # In fact, it's impossible
+            return output.sigmoid()
 
 
     def __forward_through_seq_encoder(self, window: torch.Tensor, key_padding_mask:torch.Tensor=None, seq_len:torch.Tensor=None) -> torch.FloatTensor:
-        if self.models_config['windows_seq_encoder'] == 'transformer':
+        if self.model_config['windows_seq_encoder_type'] == 'transformer':
             self.windows_seq_encoder: nn.ModuleList
 
             skip_connection = None
@@ -176,7 +134,7 @@ class PrematchModel(ConfigBase, nn.Module):
                     window = layer(window)
 
                 elif isinstance(layer, blocks.TransformerEncoder):
-                    if (idx+1)%self.models_config['transformer']['skip_connection'] == 0:
+                    if (idx+1)%self.model_config['transformer']['skip_connection'] == 0:
                         window = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
                         window = skip_connection = window + skip_connection
 
@@ -198,7 +156,7 @@ class PrematchModel(ConfigBase, nn.Module):
             # |pooled| : (batch_size, embed_dim)
             return pooled_w
 
-        elif self.models_config['windows_seq_encoder'] == 'GRU':
+        elif self.model_config['windows_seq_encoder_type'].upper() in ['GRU', 'LSTM']:
             self.windows_seq_encoder: nn.Module
 
             pooled_w = self.windows_seq_encoder(window)
@@ -221,18 +179,6 @@ class PrematchModel(ConfigBase, nn.Module):
 
         return pooled
 
-
-    def configure_optimizers(self):
-        raise NotImplementedError("This is for torch lightning")
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
-        return optimizer
-
-
-    def training_step(self, train_batch: dict, batch_idx: int):
-        raise NotImplementedError("This is for torch lightning")
-        out = self.forward(train_batch)    
-        loss = F.binary_cross_entropy_with_logits(out, train_batch['y'])
-        return loss
 
     def summary(self):
         torchsummary.summary(self)

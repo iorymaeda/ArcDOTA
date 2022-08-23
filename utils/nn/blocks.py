@@ -1,4 +1,3 @@
-from codecs import raw_unicode_escape_decode
 import math
 from typing import Literal
 
@@ -32,14 +31,14 @@ class LayerNorm(nn.Module):
 
 # ----------------------------------------------------------------------------------------------- #
 # RNN
-class __SelfAttention(nn.Module):
+class RNNAttention(nn.Module):
     """Self-attention for modded RNN
 
     source: https://github.com/gucci-j/imdb-classification-gru/blob/master/src/model_with_self_attention.py
     """
     def __init__(self, query_dim):
         # assume: query_dim = key/value_dim
-        super(__SelfAttention, self).__init__()
+        super(RNNAttention, self).__init__()
         self.scale = 1. / math.sqrt(query_dim)
 
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor):
@@ -51,8 +50,6 @@ class __SelfAttention(nn.Module):
         # bmm: batch matrix-matrix multiplication
         attention_weight = torch.bmm(query, key) # (batch_size, 1, sentence_length)
         attention_weight = F.softmax(attention_weight.mul_(self.scale), dim=2) # normalize sentence_length's dimension
-
-        value = value.transpose(0, 1) # (batch_size, sentence_length, hidden_dim)
         attention_output = torch.bmm(attention_weight, value) # (batch_size, 1, hidden_dim)
 
         # (batch_size, hidden_dim)
@@ -74,11 +71,11 @@ class RNN(nn.Module):
 
         if  RNN_type == 'LSTM': raise NotImplementedError
 
-        if not output_hidden and attention: raise Exception("We outputs hidden while use attention, but `output_hidden==False`")
+        if not output_hidden and attention: raise Exception("We outputs only `hidden` while use attention, but `output_hidden==False`")
 
         self.output_hidden = output_hidden
         self.bidirectional = bidirectional
-        self.attention = __SelfAttention(2*embed_dim if bidirectional else embed_dim) if attention else False
+        self.attention = RNNAttention(2*embed_dim if bidirectional else embed_dim) if attention else False
         self.rnn = self.RNNs[RNN_type](
             input_size=input_size , hidden_size=embed_dim, 
             num_layers=num_layers, bidirectional=bidirectional, 
@@ -103,7 +100,7 @@ class RNN(nn.Module):
             rescaled_hidden, attention_weight = self.attention(query=hidden, key=output, value=output)
             return rescaled_hidden
         else:
-            return hidden if self.output_hidden else output[:,-1:,:]
+            return hidden if self.output_hidden else output[:,-1,:]
 
 # ----------------------------------------------------------------------------------------------- #
 # Transformer stuff
@@ -361,6 +358,7 @@ class WindowedGamesFeatureEncoder(ConfigBase, nn.Module):
 class OutputHead(ConfigBase, nn.Module):
     def __init__(self, in_dim:int, regression:bool):
         super().__init__()
+        self.emb_storage = {}
         self.regression = regression
         self.model_config: dict = self._get_config('models')['preamtch']
 
@@ -387,34 +385,89 @@ class OutputHead(ConfigBase, nn.Module):
             conf = self.model_config['compare_encoder']['linear']
 
             modules = []
-            for _in, _out in zip( [in_dim] + conf['in_fnn_dims'][:-1], conf['in_fnn_dims'] ):
+            for _in, _out in zip( [in_dim]+conf['in_fnn_dims'][:-1], conf['in_fnn_dims'] ):
+                modules += [nn.Linear(_in, _out, bias=conf['bias']), nn.GELU(), nn.Dropout(conf['dropout'])]
+            self.in_fnn = nn.Sequential(*modules)
+
+
+            modules = []
+            for _in, _out in zip( [_out*2]+conf['compare_fnn_dims'][:-1], conf['compare_fnn_dims']):
+                modules += [nn.Linear(_in, _out, bias=conf['bias']), nn.GELU(), nn.Dropout(conf['dropout'])]
+            modules += [nn.Linear(conf['compare_fnn_dims'][-1], conf['out_dim'], bias=conf['bias'])]
+            self.compare_fnn = nn.Sequential(*modules)
+
+        elif self.model_config['compare_encoder_type'] == 'subtract':
+            assert not regression, 'regression only for transformer'
+            conf = self.model_config['compare_encoder']['linear']
+
+            modules = []
+            for _in, _out in zip( [in_dim]+conf['in_fnn_dims'][:-1], conf['in_fnn_dims'] ):
                 modules += [nn.Linear(_in, _out, bias=conf['bias']), nn.GELU(), nn.Dropout(conf['dropout'])]
             self.in_fnn = nn.Sequential(*modules)
 
             modules = []
-            for _in, _out in zip():
-                modules += [nn.Linear(_in, _out, bias=True), nn.GELU(), nn.Dropout(conf['dropout'])]
-
-
-            self.out_fnn = nn.Linear(
-                in_features=conf['embed_dim'], 
-                out_features=len(FEATURES) if regression else 1, 
-                bias=False)
+            for _in, _out in zip( [_out]+conf['compare_fnn_dims'][:-1], conf['compare_fnn_dims']):
+                modules += [nn.Linear(_in, _out, bias=False), nn.Tanh(), nn.Dropout(conf['dropout'])]
+            modules += [nn.Linear(conf['compare_fnn_dims'][-1], 1, bias=False)]
+            self.compare_fnn = nn.Sequential(*modules)
+        
+        else: raise Exception
 
 
     def forward(self, radiant: torch.Tensor, dire: torch.Tensor):
-        # |radiant| : (batch_size, in_dim)
-        # |dire|    : (batch_size, in_dim)
+        # | radiant, dire| : (batch_size, in_dim)
+        radiant, dire = self.in_fnn(radiant), self.in_fnn(dire)
+        # | radiant, dire | : (batch_size, embed_dim)
+        self.emb_storage['radiant'] = radiant
+        self.emb_storage['dire'] = dire
+
         if self.model_config['compare_encoder_type'] == 'transformer':
-            radiant = self.in_fnn(radiant)
-            # |radiant| : (batch_size, 1, embed_dim)
-            dire = self.in_fnn(dire)
-            # |dire| : (batch_size, 1, embed_dim)
-
             radiant = radiant.unsqueeze(1)
-            # |radiant| : (batch_size, 1, embed_dim)
             dire = dire.unsqueeze(1)
-            # |dire| : (batch_size, 1, embed_dim)
-
-            pooled = torch.cat([dire, radiant], dim=1)
+            # | radiant, dire | : (batch_size, 1, embed_dim)
+            cat = torch.cat([dire, radiant], dim=1)
             # |pooled| : (batch_size, 2, embed_dim)
+
+            # Add pos info
+            cat = cat + self.compare_embedding(self.__generate_pos_tokens(cat))
+            # |pooled| : (batch_size, 2, embed_dim)
+
+            if self.regression:
+                compare: torch.Tensor = self.compare(cat)
+                self.emb_storage['compared'] = compare.detach()
+
+                compare = self.out_fnn(compare)
+                # |compare| : (batch_size, 2, len(FEATURES))
+                return compare[:, 1], compare[:, 0]
+                # |compare| : (batch_size, len(FEATURES))
+
+            else:
+                compare: torch.Tensor = self.compare(cat)
+                self.emb_storage['compared'] = compare
+
+                compare = self.out_fnn(compare)
+                # |compare| : (batch_size, 2, 1)
+                # index 0 - dire
+                # index 1 - radiant
+                compare = compare.squeeze(2)
+                # |compare| : (batch_size, 2)
+                return compare
+
+        elif self.model_config['compare_encoder_type'] == 'linear':
+            cat = torch.cat([radiant, dire], dim=1)
+            # | cat | : (batch_size, embed_dim*2)
+            compare = self.compare_fnn(cat)
+            self.emb_storage['compared'] = compare
+            # | compare | : (batch_size, 1/2)
+            return compare
+
+        elif self.model_config['compare_encoder_type'] == 'subtract':
+            compare = self.compare_fnn(radiant - dire)
+            self.emb_storage['compared'] = compare
+            # | compare | : (batch_size, 1)
+            compare = torch.cat([compare, -compare], dim=1)
+            # | compare | : (batch_size, 2)
+            return compare
+
+    def __generate_pos_tokens(self, inputs: torch.Tensor) -> torch.Tensor:
+        return torch.arange(inputs.size(1), device=inputs.device, dtype=torch.int64).repeat(inputs.size(0), 1)

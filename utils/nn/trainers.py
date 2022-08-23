@@ -91,7 +91,15 @@ class PremtachTrainer(BaseTrainer):
     def train_step(self, batch: dict[torch.Tensor|dict, torch.Tensor|dict]):
         batch = batch_to_device(batch, self.device)
         X, Y = batch, batch['y']
-        
+
+        if isinstance(self.loss_fn, nn.BCEWithLogitsLoss):
+            Y = Y.float()
+            if len(Y.shape) == 1:
+                Y = Y.unsqueeze(1)
+
+            elif len(Y.shape) > 2:
+                raise Exception(f"bad Y shape: {Y.shape}")
+
         outputs: torch.Tensor = self.model(X)
 
         if len(Y.shape) > 1:

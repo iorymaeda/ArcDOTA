@@ -7,6 +7,10 @@ public:
     duration: 900
   max: 
     duration: 5000
+
+  # in mounth
+  # matches older than this will be droped 
+  match_age: 12
   
   # This is for team summary
   rd: # summary `r_` + `d_` stats
