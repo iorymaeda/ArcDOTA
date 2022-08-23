@@ -42,5 +42,5 @@ Project contains tools, utils and models to predict dota outcomes (win, game sta
   * [ ] Players
   * [ ] Heroes
 * [ ] Build evaluate platform
-
----
+* [ ] check for players stack in inference wrappers.py/PropertyWrapper
+* [ ] skip old games in team's time-series
