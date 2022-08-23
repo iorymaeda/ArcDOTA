@@ -1,20 +1,31 @@
 *.log
 
+
 # data
 *.rar
 *.h5
-*.json
 *.csv
 *.pkl
+!inference/files/*.pkl
 *.npy
 *.torch
+!inference/models_w/prematch/*.torch
+*.json
+!scarpe/dotaconstants/*.json
+!scarpe/dotaconstants/build/*.json
+!scarpe/dotaconstants/json/*.json
 
 *.exe
 *.bat
 *.cmd
-dotaconstants
 train/logs/fit
+
 
 .VSCodeCounter
 .ipynb_checkpoints
 __pycache__
+
+
+
+
+
