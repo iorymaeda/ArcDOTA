@@ -4,12 +4,9 @@
 # data
 *.rar
 *.h5
-*.csv
-*.pkl
-!inference/files/*.pkl
-*.npy
-*.torch
-!inference/models_w/prematch/*.torch
+
+
+
 *.json
 !scarpe/dotaconstants/*.json
 !scarpe/dotaconstants/build/*.json
