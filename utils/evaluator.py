@@ -1,5 +1,5 @@
 """This class drops bad matches / evaluate as good or bad a match"""
-
+import logging
 from contextlib import suppress
 
 import pandas as pd
@@ -65,7 +65,9 @@ class Evaluator(ConfigBase):
                 bool_ = match['league_tier'] == tier
                 with suppress(TypeError, KeyError):
                     if config['tiers'][tier]['include']:
-                        bad_matches[bool_] += match['league_prize_pool'][bool_] < config['tiers'][tier]['prize_pool']
+                        b = match['league_prize_pool'][bool_] < config['tiers'][tier]['prize_pool']
+                        bad_matches[bool_] += b
+                        logging.info(f'{tier} league_prize_pool: {b.sum()}')
                     else:
                         bad_matches += bool_
 
@@ -74,7 +76,9 @@ class Evaluator(ConfigBase):
             # process unexcepted tier
             unexcepted_tiers = ~excepted_tiers
             if config['tiers']['others']['include']: 
-                bad_matches[unexcepted_tiers] += match['league_prize_pool'][unexcepted_tiers] < config['tiers']['others']['prize_pool']
+                b = match['league_prize_pool'][unexcepted_tiers] < config['tiers']['others']['prize_pool']
+                bad_matches[unexcepted_tiers] += b
+                logging.info(f'include league_prize_pool: {b.sum()}')
             else:
                 bad_matches += unexcepted_tiers
             
@@ -143,30 +147,42 @@ class Evaluator(ConfigBase):
             # ------------------------------ #
             with suppress(TypeError, KeyError):
                 for f in config['min']:
-                    bad_matches += match[f] < config['min'][f]
+                    b = match[f] < config['min'][f]
+                    bad_matches += b
+                    logging.info(f'min {f}: {b.sum()}')
 
             with suppress(TypeError, KeyError):
                 for f in config['max']:
-                    bad_matches += match[f] > config['max'][f]
-
+                    b = match[f] > config['max'][f]
+                    bad_matches += b
+                    logging.info(f'max {f}: {b.sum()}')
+                    
             # ------------------------------ #
             with suppress(TypeError, KeyError):
                 for f in config['rd']['min']:
-                    bad_matches += match[f"r_{f}"] + match[f"d_{f}"] < config['rd']['min'][f]
+                    b = (match[f"r_{f}"] + match[f"d_{f}"]) < config['rd']['min'][f]
+                    bad_matches += b
+                    logging.info(f'rd min {f}: {b.sum()}')
 
             with suppress(TypeError, KeyError):
                 for f in config['rd']['max']:
-                    bad_matches += match[f"r_{f}"] + match[f"d_{f}"] > config['rd']['max'][f]
+                    b = (match[f"r_{f}"] + match[f"d_{f}"])> config['rd']['max'][f]
+                    bad_matches += b
+                    logging.info(f'rd max {f}: {b.sum()}')
 
             # ------------------------------ #
             with suppress(TypeError, KeyError):
                 for f in config['r_d']['min']:
-                    bad_matches += (match[f"r_{f}"] < config['r_d']['min'][f]) | (match[f"d_{f}"] < config['r_d']['min'][f])
+                    b = (match[f"r_{f}"] < config['r_d']['min'][f]) | (match[f"d_{f}"] < config['r_d']['min'][f])
+                    bad_matches += b
+                    logging.info(f'r_d min {f}: {b.sum()}')
             
             with suppress(TypeError, KeyError):
                 for f in config['r_d']['max']:
-                    bad_matches += (match[f"r_{f}"] > config['r_d']['max'][f]) | (match[f"d_{f}"] > config['r_d']['max'][f])
-            
+                    b = (match[f"r_{f}"] > config['r_d']['max'][f]) | (match[f"d_{f}"] > config['r_d']['max'][f])
+                    bad_matches += b
+                    logging.info(f'r_d max {f}: {b.sum()}')
+
             # Return good matches
             return match[~bad_matches]
 

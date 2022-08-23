@@ -1,4 +1,5 @@
 """Stranger thins to do develompent stuff"""
+import os
 import time
 import asyncio
 import datetime
@@ -63,50 +64,27 @@ class suppress:
 
 class SessionHelper:
     def __init__(self):
-        self.timeout = aiohttp.ClientTimeout(total=61)
+        self.timeout = aiohttp.ClientTimeout(total=65)
         self.session = aiohttp.ClientSession(timeout=self.timeout)
         self.verbose = True
 
     @property
-    def __current_sec(self) -> int:
+    def _current_sec(self) -> int:
         date = datetime.datetime.now()
         return date.second
-
-
-    async def opendota_api_limit(self, sec:int , headers: dict) -> bool | None:
-        """Return `True` if this is a opendota time limit and we must try again"""
-        if not isinstance(headers, dict): return
-        if ("x-rate-limit-remaining-month" in headers and 
-            "x-rate-limit-remaining-minute" in headers):
-            if int(headers['x-rate-limit-remaining-month']) <= 0:
-                raise opendota.OpendotaMonthLimit
-
-            if int(headers['x-rate-limit-remaining-minute']) <= 0:   
-                if self.verbose: print(f"Opendota rate limit, sleep: {60-sec + 1}")
-                # If a new minute has been begun after request - limit has skiped and
-                # `__current_sec` will be less than `sec`
-                if self.__current_sec > sec: 
-                    time.sleep(60-sec + 1)
-                    # await asyncio.sleep(60-sec + 1)
-
-                return True
                 
 
     async def get(self, URL: str, counter=0, json=None, status=666): 
         if counter > 3: return json, status
 
         try:
-            sec = self.__current_sec
             response = await self.session.get(URL)
             status = response.status
             if status//100 in [2, 3]:
                 json = await response.json()
                 return json, status
             else:
-                if not await self.opendota_api_limit(sec, response.headers):
-                    counter+=1
-
-                json, status = await self.get(URL=URL, counter=counter, json=json, status=status)
+                json, status = await self.get(URL=URL, counter=counter+1, json=json, status=status)
                 return json, status
 
         except (aiohttp.ServerTimeoutError, asyncio.exceptions.TimeoutError):
@@ -118,16 +96,12 @@ class SessionHelper:
         if counter > 3: return json, status
 
         try:
-            sec = self.__current_sec
             response = await self.session.post(URL)
             status = response.status
             if status//100 in [2, 3]:
                 json = await response.json()
                 return json, status
             else:
-                if not await self.opendota_api_limit(sec, response.headers):
-                    counter+=1
-
                 json, status = await self.post(URL=URL, counter=counter+1, json=json, status=status)
                 return json, status
 
@@ -144,6 +118,79 @@ class SessionHelper:
     async def reset(self):
         await self.close()
         self.session = aiohttp.ClientSession(timeout=self.timeout)
+
+
+class OpendotaSession(SessionHelper):
+    def __init__(self):
+        super().__init__()
+        self.key = os.environ.get('opendota_api_key')
+        self.key = '' if self.key is None else f"&key={self.key}"
+
+
+    async def opendota_api_limit(self, sec:int , headers: dict) -> bool | None:
+        """Return `True` if this is a opendota time limit and we must try again"""
+        if not isinstance(headers, dict): return
+
+        headers = {k.lower():v for k, v in headers.items()}
+        if ("x-rate-limit-remaining-month" in headers and 
+            "x-rate-limit-remaining-minute" in headers):
+            if int(headers['x-rate-limit-remaining-month']) <= 0:
+                raise opendota.OpendotaMonthLimit
+
+            if int(headers['x-rate-limit-remaining-minute']) <= 0:   
+                if self.verbose: print(f"Opendota API rate limit")
+                # If a new minute has been begun after request - limit has skiped and
+                # `_current_sec` will be less than `sec`
+                if self._current_sec > sec: 
+                    if self.verbose: print(f'sleep: {60-self._current_sec + 1} sec')
+                    time.sleep(60-self._current_sec + 1)
+                    # await asyncio.sleep(60-sec + 1)
+
+                return True
+                
+
+    async def get(self, URL: str, counter=0, json=None, status=666): 
+        if counter > 3: return json, status
+
+        try:
+            sec = self._current_sec
+            response = await self.session.get(URL + self.key)
+            status = response.status
+            if status//100 in [2, 3]:
+                json = await response.json()
+                return json, status
+            else:
+                if not await self.opendota_api_limit(sec, dict(response.headers)):
+                    counter+=1
+
+                json, status = await self.get(URL=URL, counter=counter, json=json, status=status)
+                return json, status
+
+        except (aiohttp.ServerTimeoutError, asyncio.exceptions.TimeoutError):
+            json, status = await self.get(URL=URL, counter=counter+1, json=json, status=status)
+            return json, status
+
+
+    async def post(self, URL: str, counter=0, json=None, status=666): 
+        if counter > 3: return json, status
+
+        try:
+            sec = self._current_sec
+            response = await self.session.post(URL + self.key)
+            status = response.status
+            if status//100 in [2, 3]:
+                json = await response.json()
+                return json, status
+            else:
+                if not await self.opendota_api_limit(sec, dict(response.headers)):
+                    counter+=1
+
+                json, status = await self.post(URL=URL, counter=counter, json=json, status=status)
+                return json, status
+
+        except (aiohttp.ServerTimeoutError, asyncio.exceptions.TimeoutError):
+            json, status = await self.post(URL=URL, counter=counter+1, json=json, status=status)
+            return json, status
 
 
 class ModelLoader(PathBase):
@@ -164,16 +211,28 @@ class ModelLoader(PathBase):
         # │   ├── development.py
         # │   └──...
         path = self._get_curernt_path()
-        # -> development.py
-        path = path.parent.absolute() 
-        # -> Project folder
-        path = path.joinpath("train/output/models_w/") 
-        # -> prematch
+        path = path.parent.resolve() 
+        path = path / "train/output/models_w/"
+        return path
+
+    def __get_inference_weights_folder(self):
+        # Project folder
+        # ├── inference
+        # │   ├── models_w
+        # │   │   ├── prematch
+        # │   │   └──...
+        # │   └──...
+        # ├── utils
+        # │   ├── development.py
+        # │   └──...
+        path = self._get_curernt_path()
+        path = path.parent.resolve()
+        path = path / "inference/models_w/"
         return path
 
     def __get_prematch_folder(self):
-        path = self.__get_weights_folder()
-        path = path.joinpath("prematch/") 
+        path = self.__get_inference_weights_folder()
+        path = path / "prematch/"
         return path
 
 
@@ -192,5 +251,4 @@ class ModelLoader(PathBase):
             model.load_state_dict(checkpoint['model'])
             models[num] = model
         return models
-
 

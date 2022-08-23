@@ -1,4 +1,5 @@
 import os
+import time
 import asyncio
 import datetime
 import pandas as pd
@@ -12,7 +13,7 @@ from . import _typing, parsers, evaluator, tokenizer, scalers
 from .time_series import TSCollector
 from .exceptions import steam, opendota, property
 from .base import ConfigBase
-from .development import SessionHelper, suppress
+from .development import OpendotaSession, SessionHelper, suppress
 
 
 #//TODO: fix it
@@ -42,7 +43,7 @@ class SteamWrapper(ConfigBase, SessionHelper):
                     return True
 
 
-class OpendotaWrapper(SessionHelper):
+class OpendotaWrapper(OpendotaSession):
     BASE_URL = "https://api.opendota.com/api"
 
     async def parse_game(self, match_id: int):
@@ -190,8 +191,7 @@ class OpendotaWrapper(SessionHelper):
 class PropertyWrapper(ConfigBase):
     """Scarpe, parse and prepare data to feed to model
 
-    WARNING:
-    Be careful ConfigBase after load model in inference may output strange config"""
+    Be careful: ConfigBase after load model in inference will output config from train phase"""
 
     def __init__(self):
         self.opendota_wrapper = OpendotaWrapper()
@@ -205,21 +205,21 @@ class PropertyWrapper(ConfigBase):
             prize_pools_path=   path / 'scarpe/output/prize_pools.json')
         self.property_parser = parsers.PropertyParser()
         self.evaluator = evaluator.Evaluator()
-        self.scaler = scalers.DotaScaler(path=path / "inference/scaler_league.pkl")
+        self.scaler = scalers.DotaScaler(path=path / "inference/files/scaler_league.pkl")
 
         # //TODO: fix tokenizer, put it together with a model
-        self.tokenizer = tokenizer.Tokenizer(path=path / "inference/tokenizer_league.pkl")
+        self.tokenizer = tokenizer.Tokenizer(path=path / "inference/files/tokenizer_league.pkl")
         # //TODO: mask_type, y_output and anothers hyper-parameters put to configs
         self.collector = TSCollector(
             mask_type='bool', 
             y_output='crossentropy', 
             teams_reg_output=False,
-            tokenizer_path=path / "inference/tokenizer_league.pkl",
+            tokenizer_path=path / "inference/files/tokenizer_league.pkl",
             )
 
+        self.batch_size = 60
 
     async def collect_players_stack(self, team: int) -> list[int]:
-        """//TODO: implelent this, curently returns 1"""
         stack = await self.opendota_wrapper.fetch_team_stack(team)
         if len(stack) > 5: print("Error in stack")
         return stack[:5]
@@ -312,29 +312,37 @@ class PropertyWrapper(ConfigBase):
         window_size = self._get_config('features')['league']['window_size']
 
         ids = set()
+        batch = []
         team_matches = []   
         for idx, tmatch in enumerate(matches):
 
             match_id = tmatch['match_id']
             print(f"parse {idx} game")
             if (self.tokenizer.tokenize(tmatch['opposing_team_id'], teams=True) > 1 and
-                match_id not in ids):
-                
-                with suppress(opendota.ParsingNotPossible, trigger=lambda: print("ParsingNotPossible")):
-                    od_match = await self.opendota_wrapper.force_fetch_game(match_id)
-                    property_match = self.opendota_parser(od_match)
+                match_id not in ids and time.time() - tmatch['start_time'] < 47_304_000):
+                # //TODO: fix this start_time crutch
+                batch.append(self.opendota_wrapper.force_fetch_game(match_id))
 
+            if len(batch) == self.batch_size:
+                done = await asyncio.gather(*batch, return_exceptions=True)
+
+                batch = []
+                matches = [item for item in done if not isinstance(item, Exception)]
+                [print(item) for item in done if isinstance(item, Exception)]
+
+
+                for od_match in matches:
+                    property_match = self.opendota_parser(od_match)
                     if self.evaluator(property_match):
                         team_matches.append(property_match)
-                        ids.add(match_id)
-                    else:
-                        print(f"Skipped unevaluated")
+                        ids.add(od_match['match_id'])
 
-                    if len(team_matches) >= window_size:
-                        break
+                    else: print(f"Skipped unevaluated")
 
-            else:
-                print(f"Skipped untokenized")
+                    if len(team_matches) >= window_size: break
+                if len(team_matches) >= window_size: break
+
+
             
         print("done :", len(team_matches))
         return team_matches

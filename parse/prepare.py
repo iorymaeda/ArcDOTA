@@ -62,6 +62,7 @@ def run(verbose=True):
         with utils.development.suppress(KeyError):
             df.drop(['_id'], inplace=True, axis=1)
 
+        print((df['league_prize_pool'] >= 75_000).sum())
         # ----------------------------------------------------------- #
         # Purge old games //TODO: FIX THIS, MAKE THIS FLEXIBLE
         # df = df[df['start_time'] > 1577826000]
