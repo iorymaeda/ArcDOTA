@@ -1,6 +1,6 @@
 import sys; sys.path.append("../")
 
-
+import os
 import torch
 import uvicorn
 from fastapi import FastAPI
@@ -28,7 +28,7 @@ keys = {
 
 @app.get("/")
 def read_root():
-    return "This is ArcDota api, see /docs for more info"
+    return os.environ.get('opendota_api_key')
 
 
 @app.get("/predict/prematch", response_model=api.Prematch)
