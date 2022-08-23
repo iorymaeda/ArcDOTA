@@ -6,12 +6,6 @@
 *.h5
 
 
-
-*.json
-!scarpe/dotaconstants/*.json
-!scarpe/dotaconstants/build/*.json
-!scarpe/dotaconstants/json/*.json
-
 *.exe
 *.bat
 *.cmd
