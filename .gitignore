@@ -14,6 +14,7 @@
 !scarpe/dotaconstants/*.json
 !scarpe/dotaconstants/build/*.json
 !scarpe/dotaconstants/json/*.json
+!scarpe/output/leagues.json
 
 *.exe
 *.bat
