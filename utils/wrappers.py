@@ -45,11 +45,15 @@ class SteamWrapper(ConfigBase, SessionHelper):
 
 class OpendotaWrapper(OpendotaSession):
     BASE_URL = "https://api.opendota.com/api"
+    def __init__(self):
+        self.key = os.environ.get('opendota_api_key')
+        self.key = '' if self.key is None else f"api_key={self.key}"
 
     async def parse_game(self, match_id: int):
         """League games usually parses automaticly.
         Game parsing may take up to 15 minutes"""
-        data, status = await self.get(f'{self.BASE_URL}/request/{match_id}')
+        url = f'{self.BASE_URL}/request/{match_id}' 
+        data, status = await self.get(url + f"?{self.key}")
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, data)
 
@@ -60,7 +64,8 @@ class OpendotaWrapper(OpendotaSession):
 
 
     async def fetch_game(self, match_id: _typing.opendota.match_id) -> _typing.opendota.Match:
-        data, status = await self.get(f'{self.BASE_URL}/matches/{match_id}')
+        url = f'{self.BASE_URL}/matches/{match_id}'
+        data, status = await self.get(url + f"?{self.key}")
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, data)
 
@@ -110,7 +115,8 @@ class OpendotaWrapper(OpendotaSession):
             
          
     async def fetch_team_games(self, team: int) -> _typing.opendota.TeamMatches:
-        games, status = await self.get(f'{self.BASE_URL}/teams/{team}/matches/')
+        url = f'{self.BASE_URL}/teams/{team}/matches/'
+        games, status = await self.get(url + f"?{self.key}")
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, games)
         return games
@@ -122,7 +128,7 @@ class OpendotaWrapper(OpendotaSession):
         SELECT%20%0Amatches.match_id%2C%0Amatches.start_time%2C%0Amatches.radiant_team_id%2C%0Amatches.dire_team_id%0A
         FROM%20matches%0AWHERE%20((RADIANT_TEAM_ID%20%3D%20{team1}%20and%20DIRE_TEAM_ID%20%3D%20{team2})%20or%20(RADIANT_TEAM_ID%20%3D%20{team2}%20and%20DIRE_TEAM_ID%20%3D%20{team1}))%0A
         ORDER%20BY%20matches.start_time%20DESC%0ALIMIT%20{200}"""
-        games, status = await self.get(url)
+        games, status = await self.get(url + f"&{self.key}")
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, games)
 
@@ -137,13 +143,12 @@ class OpendotaWrapper(OpendotaSession):
     async def fetch_public_games(self, start_time: int, avg_mmr: int, limit: int = None) -> _typing.opendota.SQLPublicMatches:
         if limit is None: limit = 100_000
         date = datetime.datetime.utcfromtimestamp(start_time).strftime("%Y-%m-%d")
-        data, status = await self.get(
-            f"""{self.BASE_URL}/explorer?sql=
+        url = f"""{self.BASE_URL}/explorer?sql=
             SELECT%20*%0AFROM%20public_matches%0AWHERE%20TRUE%0AAND%20
             public_matches.start_time%20%3E%3D%20
             extract(epoch%20from%20timestamp%20%27{date}%27)%0AAND%20
             public_matches.AVG_MMR%20%3E%3D%20{avg_mmr}%0ALIMIT%20{limit}"""
-        )
+        data, status = await self.get(url + f"&{self.key}")
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, data)
         return data['rows']
@@ -152,13 +157,12 @@ class OpendotaWrapper(OpendotaSession):
     async def fetch_league_games(self, start_time: int, limit: int = None) -> _typing.opendota.SQLLeagueMatches:
         if limit is None: limit = 100_000
         date = datetime.datetime.utcfromtimestamp(start_time).strftime("%Y-%m-%d")
-        data, status = await self.get(
-            f"""{self.BASE_URL}/explorer?sql=
+        url = f"""{self.BASE_URL}/explorer?sql=
             SELECT%20%0Amatches.match_id%2C%0Aleagues.name%20leaguename%2C%0Aleagues.tier%20leaguetier%2C%0Amatches.start_time%2C%0Amatches.lobby_type%2C%0Amatches.human_players%2C%0Amatches.game_mode%2C%0Amatches.radiant_team_id%2C%0Amatches.dire_team_id%2C%0Amatches.radiant_captain%2C%0Amatches.dire_captain%0A
             FROM%20matches%0AJOIN%20leagues%20using(leagueid)%0A
             WHERE%20matches.start_time%20%3E%3D%20extract(epoch%20from%20timestamp%20%27{date}%27)%0A
             ORDER%20BY%20matches.start_time%20DESC%0ALIMIT%20{limit}"""
-        )
+        data, status = await self.get(url + f"&{self.key}")
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, data)
         return data['rows']
@@ -173,14 +177,16 @@ class OpendotaWrapper(OpendotaSession):
 
 
     async def fetch_leagues(self) -> list[_typing.opendota.League]:
-        data, status = await self.session.get(f"{self.BASE_URL}/leagues/")
+        url = f"{self.BASE_URL}/leagues/"
+        data, status = await self.session.get(url + f"?{self.key}")
         if status//100 not in [2, 3]: raise opendota.OpendotaError(status, data)
 
         return data
 
 
     async def fetch_team_stack(self, team: int) -> list[int]:
-        data, status = await self.get(f'{self.BASE_URL}/teams/{team}/players')
+        url = f'{self.BASE_URL}/teams/{team}/players'
+        data, status = await self.get(url + f"?{self.key}")
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, data)
         

@@ -121,12 +121,6 @@ class SessionHelper:
 
 
 class OpendotaSession(SessionHelper):
-    def __init__(self):
-        super().__init__()
-        self.key = os.environ.get('opendota_api_key')
-        self.key = '' if self.key is None else f"&api_key={self.key}"
-
-
     async def opendota_api_limit(self, sec:int , headers: dict) -> bool | None:
         """Return `True` if this is a opendota time limit and we must try again"""
         if not isinstance(headers, dict): return
@@ -154,7 +148,7 @@ class OpendotaSession(SessionHelper):
 
         try:
             sec = self._current_sec
-            response = await self.session.get(URL + self.key)
+            response = await self.session.get(URL)
             status = response.status
             if status//100 in [2, 3]:
                 json = await response.json()
@@ -176,7 +170,7 @@ class OpendotaSession(SessionHelper):
 
         try:
             sec = self._current_sec
-            response = await self.session.post(URL + self.key)
+            response = await self.session.post(URL)
             status = response.status
             if status//100 in [2, 3]:
                 json = await response.json()
