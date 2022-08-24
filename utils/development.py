@@ -121,6 +121,10 @@ class SessionHelper:
 
 
 class OpendotaSession(SessionHelper):
+    def __init__(self):
+        super().__init__()
+
+        
     async def opendota_api_limit(self, sec:int , headers: dict) -> bool | None:
         """Return `True` if this is a opendota time limit and we must try again"""
         if not isinstance(headers, dict): return

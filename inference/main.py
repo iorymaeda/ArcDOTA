@@ -1,5 +1,5 @@
 import sys; sys.path.append("../")
-
+import traceback
 
 import torch
 import uvicorn
@@ -62,6 +62,7 @@ async def predict_prematch(team1:int, team2:int, key:str|None=None, match_id:int
         )
  
     except Exception as e:
+        traceback.print_exc()
         return JSONResponse(status_code=404, content={"message": str(e)})
 
 
