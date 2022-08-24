@@ -22,7 +22,7 @@ class Scarper():
         self.DAYS_BEFORE_RE = 5
         self.BATCH_SIZE = 60
         self.SLEEP_AFTER_PARSE = 20 # in minutes
-        self.LIMIT = 100_000
+        self.LIMIT = 10_000
 
         self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=65))
         self.client = pymongo.MongoClient("mongodb://localhost:27017/")
