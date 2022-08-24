@@ -123,8 +123,7 @@ class SessionHelper:
 class OpendotaSession(SessionHelper):
     def __init__(self):
         super().__init__()
-        self.key = os.environ.get('opendota_api_key')
-        self.key = '' if self.key is None else f"&api_key={self.key}"
+        self.key = ""
 
 
     async def opendota_api_limit(self, sec:int , headers: dict) -> bool | None:
