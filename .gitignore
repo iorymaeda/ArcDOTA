@@ -15,6 +15,7 @@
 !scarpe/dotaconstants/build/*.json
 !scarpe/dotaconstants/json/*.json
 !scarpe/output/leagues.json
+!scarpe/output/prize_pools.json
 
 *.exe
 *.bat
