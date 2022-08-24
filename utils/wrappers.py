@@ -46,6 +46,8 @@ class SteamWrapper(ConfigBase, SessionHelper):
 class OpendotaWrapper(OpendotaSession):
     BASE_URL = "https://api.opendota.com/api"
     def __init__(self):
+        super().__init__()
+        
         self.key = os.environ.get('opendota_api_key')
         self.key = '' if self.key is None else f"api_key={self.key}"
 
