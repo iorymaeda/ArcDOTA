@@ -1,39 +1,173 @@
 import os
 import time
+import json
 import asyncio
 import datetime
-import pandas as pd
+from typing import Literal
 
 # import pymongo
 import aiohttp
 import aiofiles
-
+import pandas as pd
+from lxml import html
 
 from . import _typing, parsers, evaluator, tokenizer, scalers
 from .time_series import TSCollector
 from .exceptions import steam, opendota, property
-from .base import ConfigBase
+from .base import ConfigBase, DotaconstantsBase
 from .development import OpendotaSession, SessionHelper, suppress
 
 
-#//TODO: fix it
-os.environ['steam_api_key'] = '61886694FAAE6A81CD7E6337B6D98361'
+class HawkWrapper(SessionHelper, DotaconstantsBase):
+    BASE_URL = "https://hawk.live"
+
+    def __init__(self):
+        super().__init__()    
+        self.npc_to_id, self.id_to_hero = self._load_heroes()
+
+    async def fetch_match(self, match_id: int) -> aiohttp.client.ClientResponse:
+        url = f'{self.BASE_URL}/matches/{match_id}'
+        response = await self.get(url, raw=True)
+        if response.status//100 not in [2, 3]:
+            raise Exception('Cant get hawk match')
+        return response
+
+    async def fetch_main_page(self) -> aiohttp.client.ClientResponse:
+        url = f'{self.BASE_URL}/'
+        response = await self.get(url, raw=True)
+        if response.status//100 not in [2, 3]:
+            raise Exception('Cant get hawk main page')
+        return response
+
+    async def parse_match(self, match_id: int) -> _typing.hawk.Match:
+        response = await self.fetch_match(match_id=match_id)
+
+        tree: html.HtmlElement = html.fromstring(await response.text())
+        data_elems: list[html.HtmlElement] = tree.xpath('//*[@id="app"]')
+
+        if len(data_elems) > 1: raise Exception('Unexcepted hawk html tree while fetch match')
+
+        data = data_elems[0]
+        data = dict(data.attrib)
+        data = json.loads(data['data-page'])
+
+        is_team1_radiant = data['props']['match']['is_team1_radiant']
+
+        radiant_heroes = [ self.npc_to_id[hero['hero']['code_name']] for hero in data['props']['match']['picks'] if hero['is_radiant'] ]
+        dire_heroes = [ self.npc_to_id[hero['hero']['code_name']] for hero in data['props']['match']['picks'] if not hero['is_radiant'] ]
+        radiant_team = data['props']['match']['team1']
+        dire_team = data['props']['match']['team2']
+        is_radiant_won = data['props']['match']['is_radiant_won']
+
+        match_odds_info_array = {}
+        for odds in data['props']['match_odds_info_array']:
+            _odds = []
+            for odd in odds['odds']:
+                with suppress(ValueError):
+                    if is_team1_radiant == True:
+                        if odds['is_team1_first'] == True:
+                            radiant_odd = float(odd['first_team_winner'])
+                            dire_odd = float(odd['second_team_winner'])
+                            
+                        elif odds['is_team1_first'] == False:
+                            radiant_odd = float(odd['second_team_winner'])
+                            dire_odd = float(odd['first_team_winner'])
+                        else: raise
+                        
+                    elif is_team1_radiant == False:
+                        if odds['is_team1_first'] == True:
+                            dire_odd = float(odd['first_team_winner'])
+                            radiant_odd = float(odd['second_team_winner'])
+                            
+                        elif odds['is_team1_first'] == False:
+                            dire_odd = float(odd['second_team_winner'])
+                            radiant_odd = float(odd['first_team_winner'])         
+                        else: raise
+                        
+                    else: raise
+                    
+                    created_at = int(time.mktime(datetime.datetime.strptime(odd['created_at'], '%Y-%m-%d %H:%M:%S').timetuple()))
+                    _odds.append({
+                        'r_odd': radiant_odd,
+                        'd_odd': dire_odd,
+                        'heroes': False,
+                        'created_at': created_at
+                    })
+                    
+            match_odds_info_array[odds['odds_provider_code_name']] = _odds
+
+        if not is_team1_radiant: 
+            radiant_heroes, dire_heroes = dire_heroes, radiant_heroes
+            radiant_team, dire_team = dire_team, radiant_team
+
+        return {
+            "id": match_id,
+            'match_id': None,
+            "is_radiant_won": is_radiant_won,
+            "radiant_team": radiant_team,
+            "dire_team": dire_team,
+            "radiant_heroes": radiant_heroes,
+            "dire_heroes": dire_heroes,
+            "odds": match_odds_info_array
+        }
+
+    async def parse_series(self) -> list[_typing.hawk.Series]:
+        response = await self.fetch_main_page()
+
+        tree: html.HtmlElement = html.fromstring(await response.text())
+        data_elems: list[html.HtmlElement] = tree.xpath('//*[@id="app"]')
+
+        if len(data_elems) > 1: raise Exception('Unexcepted hawk html tree while fetch match')
+
+        data = data_elems[0]
+        data = dict(data.attrib)
+        data = json.loads(data['data-page'])
+        return data['props']['series']
 
 
-class SteamWrapper(ConfigBase, SessionHelper):
-    async def fetch_live_game(self, match_id: int) -> list[dict, bool]:
-        data, status = await self.get(URL=f"http://api.steampowered.com/IDOTA2Match_570/GetLiveLeagueGames/v1?key={os.environ.get('steam_api_key')}&match_id={match_id}")
+class SteamWrapper(SessionHelper, ConfigBase):
+    BASE_URL = "http://api.steampowered.com"
+
+    def __init__(self):
+        super().__init__()    
+        self.key = os.environ.get('steam_api_key')
+        self.key = '' if self.key is None else f"key={self.key}"
+
+
+    async def fetch_live_game(self, match_id: int) -> _typing.steam._league_game:
+        url = f"{self.BASE_URL}/IDOTA2Match_570/GetLiveLeagueGames/v1?{match_id=}"
+        url = url + f"&{self.key}" if self.key else url
+        data, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise steam.SteamError(status, data)
 
+        data: _typing.steam.GetLiveLeagueGames
         if data['result']['games']:
-            live = True
-            match = data['result']['games'][0]
-            return match, live
+            return data['result']['games'][0]
         raise steam.LiveGameNotFound(f"Game not found")
         
 
-    async def downloadReplay(self, url: str, save_path: str) -> bool:
+    async def fetch_live_games(self, partner:Literal[0, 1, 2, 3]=0) -> _typing.steam.GetLiveLeagueGames:
+        url = f"{self.BASE_URL}/IDOTA2Match_570/GetLiveLeagueGames/v1?{partner=}"
+        url = url + f"&{self.key}" if self.key else url
+        data, status = await self.get(url)
+        if status//100 not in [2, 3]:
+            raise steam.SteamError(status, data)
+        return data
+
+
+    async def fetch_tournament_prize_pool(self, leagueid:int):
+        url = f"http://api.steampowered.com/IEconDOTA2_570/GetTournamentPrizePool/v1?{leagueid=}"
+        url = url + f"&{self.key}" if self.key else url
+        data, status = await self.get(url)
+        if status//100 not in [2, 3]:
+            raise steam.SteamError(status, data)
+
+        if data['result']['league_id'] == leagueid: return data
+        raise steam.SteamError(500, f"League prize pool not found")
+
+
+    async def download_replay(self, url: str, save_path: str) -> bool:
         async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total = 0, connect = 25)) as session:
             async with session.get(url) as resp:
                 if resp.status == 200:
@@ -45,17 +179,19 @@ class SteamWrapper(ConfigBase, SessionHelper):
 
 class OpendotaWrapper(OpendotaSession):
     BASE_URL = "https://api.opendota.com/api"
+
     def __init__(self):
         super().__init__()
-        
         self.key = os.environ.get('opendota_api_key')
         self.key = '' if self.key is None else f"api_key={self.key}"
+
 
     async def parse_game(self, match_id: int):
         """League games usually parses automaticly.
         Game parsing may take up to 15 minutes"""
         url = f'{self.BASE_URL}/request/{match_id}' 
-        data, status = await self.get(url + f"?{self.key}")
+        url = url + f"?{self.key}" if self.key else url
+        data, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, data)
 
@@ -67,7 +203,8 @@ class OpendotaWrapper(OpendotaSession):
 
     async def fetch_game(self, match_id: _typing.opendota.match_id) -> _typing.opendota.Match:
         url = f'{self.BASE_URL}/matches/{match_id}'
-        data, status = await self.get(url + f"?{self.key}")
+        url = url + f"?{self.key}" if self.key else url
+        data, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, data)
 
@@ -105,20 +242,15 @@ class OpendotaWrapper(OpendotaSession):
                 await asyncio.sleep(4)
                 print('OpendotaError: Try another one force fetch...')
                 return await self.force_fetch_game(match_id, num=num) 
-
-            print('Try another one force fetch...')
-            return await self.force_fetch_game(match_id, num=num-1) 
-
-            async with suppress(opendota.OpendotaError, opendota.GameNotParsed, trigger=asyncio.sleep(30)):
-                await self.parse_game(match_id=match_id)
-                return await self.fetch_game(match_id=match_id)
-
-            print('Try another one force fetch...')
+            except Exception:
+                print('Try another one force fetch...')
+                return await self.force_fetch_game(match_id, num=num) 
             
          
     async def fetch_team_games(self, team: int) -> _typing.opendota.TeamMatches:
         url = f'{self.BASE_URL}/teams/{team}/matches/'
-        games, status = await self.get(url + f"?{self.key}")
+        url = url + f"?{self.key}" if self.key else url
+        games, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, games)
         return games
@@ -130,7 +262,8 @@ class OpendotaWrapper(OpendotaSession):
         SELECT%20%0Amatches.match_id%2C%0Amatches.start_time%2C%0Amatches.radiant_team_id%2C%0Amatches.dire_team_id%0A
         FROM%20matches%0AWHERE%20((RADIANT_TEAM_ID%20%3D%20{team1}%20and%20DIRE_TEAM_ID%20%3D%20{team2})%20or%20(RADIANT_TEAM_ID%20%3D%20{team2}%20and%20DIRE_TEAM_ID%20%3D%20{team1}))%0A
         ORDER%20BY%20matches.start_time%20DESC%0ALIMIT%20{200}"""
-        games, status = await self.get(url + f"&{self.key}")
+        url = url + f"?{self.key}" if self.key else url
+        games, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, games)
 
@@ -150,7 +283,8 @@ class OpendotaWrapper(OpendotaSession):
             public_matches.start_time%20%3E%3D%20
             extract(epoch%20from%20timestamp%20%27{date}%27)%0AAND%20
             public_matches.AVG_MMR%20%3E%3D%20{avg_mmr}%0ALIMIT%20{limit}"""
-        data, status = await self.get(url + f"&{self.key}")
+        url = url + f"?{self.key}" if self.key else url
+        data, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, data)
         return data['rows']
@@ -164,7 +298,8 @@ class OpendotaWrapper(OpendotaSession):
             FROM%20matches%0AJOIN%20leagues%20using(leagueid)%0A
             WHERE%20matches.start_time%20%3E%3D%20extract(epoch%20from%20timestamp%20%27{date}%27)%0A
             ORDER%20BY%20matches.start_time%20DESC%0ALIMIT%20{limit}"""
-        data, status = await self.get(url + f"&{self.key}")
+        url = url + f"?{self.key}" if self.key else url
+        data, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, data)
         return data['rows']
@@ -180,7 +315,8 @@ class OpendotaWrapper(OpendotaSession):
 
     async def fetch_leagues(self) -> list[_typing.opendota.League]:
         url = f"{self.BASE_URL}/leagues/"
-        data, status = await self.session.get(url + f"?{self.key}")
+        url = url + f"?{self.key}" if self.key else url
+        data, status = await self.get(url)
         if status//100 not in [2, 3]: raise opendota.OpendotaError(status, data)
 
         return data
@@ -188,7 +324,8 @@ class OpendotaWrapper(OpendotaSession):
 
     async def fetch_team_stack(self, team: int) -> list[int]:
         url = f'{self.BASE_URL}/teams/{team}/players'
-        data, status = await self.get(url + f"?{self.key}")
+        url = url + f"?{self.key}" if self.key else url
+        data, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise opendota.OpendotaError(status, data)
         

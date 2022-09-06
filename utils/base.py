@@ -1,7 +1,9 @@
 import yaml
 import copy
+import json
 import pickle
 import pathlib
+from contextlib import suppress
 
 
 class PathBase:
@@ -36,6 +38,35 @@ class ConfigBase(PathBase):
             return yaml.safe_load(stream)
 
 
+class DotaconstantsBase(PathBase):
+    RADIANT_SIDE = [0, 1, 2, 3, 4]
+    DIRE_SIDE = [128, 129, 130, 131, 132]
+
+    def _get_constants_path(self) -> pathlib.Path:
+        path = self._get_curernt_path()
+        path = path.parent.resolve()
+        path = path / "scarpe/dotaconstants/"
+        return path.resolve()
+
+
+    def _load_json(self, path: str | pathlib.Path) -> dict:
+        for encoding in [None, 'utf8', 'utf16', 'utf32']:
+            with (suppress(UnicodeDecodeError), open(path, 'r', encoding=encoding) as f):
+                    return json.load(f)
+        raise UnicodeDecodeError
+
+
+    def _load_heroes(self) -> tuple[dict[str, int], dict[int, str]]:
+        path = self._get_constants_path()
+        path = path / "build/heroes.json"
+
+        heroes = self._load_json(path)
+
+        npc_to_id = {heroes[hero_id]['name']: int(hero_id) for hero_id in heroes}
+        id_to_hero = {int(hero_id): heroes[hero_id]['localized_name'] for hero_id in heroes}
+        return npc_to_id, id_to_hero
+
+        
 class SaveLoadBase:
     def _save(self, path:str):
         "Save states to path"

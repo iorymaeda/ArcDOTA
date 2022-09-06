@@ -14,7 +14,7 @@ from utils._typing import api
 DEVICE = 'cpu'
 
 app = FastAPI()
-loader = utils.development.ModelLoader(DEVICE)
+loader = utils.nn.tools.ModelLoader(DEVICE)
 models: dict[str, utils.nn.prematch.PrematchModel] = loader.load_prematch_ensemble_models('2022.08.23 - 21-58', [i for i in range(5)])
 
 keys = {
@@ -32,7 +32,8 @@ def read_root():
 
 
 @app.get("/predict/prematch", response_model=api.Prematch)
-async def predict_prematch(team1:int, team2:int, key:str|None=None, match_id:int|None=None) -> dict[str, str] | api.Prematch:
+async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None) \
+    -> dict[str, str] | api.Prematch:
     try:
         if key not in keys: raise Exception("Invalid key")
 

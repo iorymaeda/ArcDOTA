@@ -6,11 +6,11 @@ import numpy as np
 import pandas as pd
 
 from . import _typing
-from .base import ConfigBase
+from .base import DotaconstantsBase
 from .development import suppress
 
 
-class OpendotaParser(ConfigBase):
+class OpendotaParser(DotaconstantsBase):
     """Parse opendota match"""
     RADIANT_SIDE = [0, 1, 2, 3, 4]
     DIRE_SIDE = [128, 129, 130, 131, 132]
@@ -34,7 +34,7 @@ class OpendotaParser(ConfigBase):
         
         # tokenizer for events, literraly not implemented
         if isinstance(tokenizer, str):
-            self.tokenizer = self.__load_tokenizer(path=tokenizer)
+            self.tokenizer = self._load_tokenizer(path=tokenizer)
         elif isinstance(tokenizer, dict):
             self.tokenizer = tokenizer
         elif tokenizer is None:
@@ -48,24 +48,25 @@ class OpendotaParser(ConfigBase):
         hero_names_path = f'{dotaconstants_path}/build/hero_names.json'
         lobby_type_path = f'{dotaconstants_path}/build/lobby_type.json'
         
-        self.__load_patch(patch_path)
-        self.__load_region(region_path)
-        self.__load_game_mode(game_mode_path)
-        self.__load_hero_names(hero_names_path)
-        self.__load_lobby_type(lobby_type_path)
-        self.__load_leagues(leagues_path)
-        self.__load_prize_pools(prize_pools_path)
+        self._load_patch(patch_path)
+        self._load_region(region_path)
+        self._load_game_mode(game_mode_path)
+        self._load_hero_names(hero_names_path)
+        self._load_lobby_type(lobby_type_path)
+        
+        self._load_leagues(leagues_path)
+        self._load_prize_pools(prize_pools_path)
 
 
-    def __load_json(self, path: str | pathlib.Path) -> dict:
+    def _load_json(self, path: str | pathlib.Path) -> dict:
         for encoding in [None, 'utf8', 'utf16', 'utf32']:
             with (suppress(UnicodeDecodeError), open(path, 'r', encoding=encoding) as f):
                     return json.load(f)
 
         raise UnicodeDecodeError
 
-    def __load_leagues(self, path: str):
-        leagues = self.__load_json(path)
+    def _load_leagues(self, path: str):
+        leagues = self._load_json(path)
         self.leagues = {
             l['leagueid']: {
                 'tier': l['tier'],
@@ -74,24 +75,24 @@ class OpendotaParser(ConfigBase):
             for l in leagues
         }
 
-    def __load_prize_pools(self, path: str):
-        prize_pools = self.__load_json(path)
+    def _load_prize_pools(self, path: str):
+        prize_pools = self._load_json(path)
         self.prize_pools = {int(k):v for k, v in prize_pools.items()}
 
-    def __load_lobby_type(self, path: str):
-        self.lobby_type = self.__load_json(path)
+    def _load_lobby_type(self, path: str):
+        self.lobby_type = self._load_json(path)
 
-    def __load_game_mode(self, path: str):
-        self.game_mode = self.__load_json(path)
+    def _load_game_mode(self, path: str):
+        self.game_mode = self._load_json(path)
 
-    def __load_region(self, path):
-        self.region = self.__load_json(path)
+    def _load_region(self, path):
+        self.region = self._load_json(path)
 
-    def __load_patch(self, path):
-        self.patch = self.__load_json(path)
+    def _load_patch(self, path):
+        self.patch = self._load_json(path)
 
-    def __load_hero_names(self, path):
-        self.hero_json = self.__load_json(path)
+    def _load_hero_names(self, path):
+        self.hero_json = self._load_json(path)
 
         self.npc_to_id = {
             npc: self.hero_json[npc]['id'] 
@@ -102,10 +103,9 @@ class OpendotaParser(ConfigBase):
             for npc in self.hero_json
         }
 
-    def __load_tokenizer(self, path):
+    def _load_tokenizer(self, path):
         raise NotImplementedError
-
-
+        
     def parse_hero_roles(self, players: _typing.opendota.Players) -> dict[int, int]:
         hero_role = {}
         Rgold_hero = {}
@@ -441,7 +441,7 @@ class OpendotaParser(ConfigBase):
         return overview
 
 
-class PropertyParser(ConfigBase):
+class PropertyParser(DotaconstantsBase):
     """Property matches to `pd.DataFrame` parser"""
     def __call__(self, matches: list[_typing.property.Match | dict] | _typing.property.Match | dict) -> pd.DataFrame:
         """Parse property matches to `pd.DataFrame`"""

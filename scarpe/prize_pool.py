@@ -12,7 +12,7 @@ from utils.development import SessionHelper
 
 os.environ['steam_api_key'] = '61886694FAAE6A81CD7E6337B6D98361'
 
-async def prize_pool(leagues: set, batch_size: int = 120) -> dict:
+async def prize_pool(leagues: set, batch_size: int = 128) -> dict:
     session = SessionHelper()
     api_key = os.environ.get('steam_api_key')
 
@@ -29,8 +29,8 @@ async def prize_pool(leagues: set, batch_size: int = 120) -> dict:
                 league_prize_pool[json['result']['league_id']] = json['result']['prize_pool']
                 
         elapsed_time = time.time() - start_time
-        if elapsed_time < 60:
-            time.sleep(60-elapsed_time)
+        if elapsed_time < 10:
+            time.sleep(10-elapsed_time)
 
     await session.close()
 
