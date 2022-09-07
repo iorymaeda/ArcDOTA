@@ -100,12 +100,15 @@ class Evaluator(ConfigBase):
                             else:
                                 return False
                     else:
-                        print(match)
+                        return False
 
                 
             # process unexcepted tier
             if config['tiers']['others']['include']:
-                return match.league.prize_pool >= config['tiers']['others']['prize_pool']
+                if (match.league.prize_pool):
+                    return match.league.prize_pool >= config['tiers']['others']['prize_pool']
+                else:
+                    return False
             else:
                 return False
 
