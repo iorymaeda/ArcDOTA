@@ -7,11 +7,8 @@ from contextlib import suppress
 
 
 class PathBase:
-    def _get_curernt_path(self) -> pathlib.Path:
-        s=''
-        for f in __file__.split('\\')[:-1]:
-            s += (f + '\\') 
-        return pathlib.Path(s)
+    def _get_relative_path(self) -> pathlib.Path:
+        return pathlib.Path(__file__).parent.resolve()
 
 
 class ConfigBase(PathBase):
@@ -31,7 +28,7 @@ class ConfigBase(PathBase):
             return self._configs[config_name]
 
         # Go to configs folder
-        path = self._get_curernt_path()
+        path = self._get_relative_path()
         path = path.parent.absolute()
         path = path.joinpath("configs/")
         with open(path / config_path, 'r') as stream:
@@ -43,7 +40,7 @@ class DotaconstantsBase(PathBase):
     DIRE_SIDE = [128, 129, 130, 131, 132]
 
     def _get_constants_path(self) -> pathlib.Path:
-        path = self._get_curernt_path()
+        path = self._get_relative_path()
         path = path.parent.resolve()
         path = path / "scarpe/dotaconstants/"
         return path.resolve()
