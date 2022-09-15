@@ -1,3 +1,5 @@
+"""Base classes for inheritance"""
+
 import json
 import pathlib
 
@@ -6,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from . import _typing
+from . import exceptions
 from .base import DotaconstantsBase
 from .development import suppress
 
@@ -15,13 +18,7 @@ class OpendotaParser(DotaconstantsBase):
     RADIANT_SIDE = [0, 1, 2, 3, 4]
     DIRE_SIDE = [128, 129, 130, 131, 132]
     
-    def __init__(self, 
-        dotaconstants_path:str, 
-        leagues_path:str, 
-        prize_pools_path:str, 
-        tokenizer:str|dict=None
-        ):
-
+    def __init__(self, tokenizer:str|dict=None):
         self.patch: dict
         self.region: dict
         self.hero_json: dict
@@ -34,26 +31,33 @@ class OpendotaParser(DotaconstantsBase):
         
         # tokenizer for events, literraly not implemented
         if isinstance(tokenizer, str):
+            raise NotImplementedError
             self.tokenizer = self._load_tokenizer(path=tokenizer)
         elif isinstance(tokenizer, dict):
+            raise NotImplementedError
             self.tokenizer = tokenizer
         elif tokenizer is None:
             tokenizer = {}
         else:
             raise Exception("`tokenizer` type must be str or dict")
 
+        dotaconstants_path = self._get_constants_path()
         patch_path = f'{dotaconstants_path}/build/patch.json'
         region_path = f'{dotaconstants_path}/build/region.json' 
         game_mode_path = f'{dotaconstants_path}/build/game_mode.json'
         hero_names_path = f'{dotaconstants_path}/build/hero_names.json'
         lobby_type_path = f'{dotaconstants_path}/build/lobby_type.json'
-        
         self._load_patch(patch_path)
         self._load_region(region_path)
         self._load_game_mode(game_mode_path)
         self._load_hero_names(hero_names_path)
         self._load_lobby_type(lobby_type_path)
         
+
+        path = self._get_relative_path()
+        path = path.parent.resolve()
+        leagues_path = path / 'scarpe/output/leagues.json'
+        prize_pools_path = path / 'scarpe/output/prize_pools.json'
         self._load_leagues(leagues_path)
         self._load_prize_pools(prize_pools_path)
 
@@ -268,6 +272,9 @@ class OpendotaParser(DotaconstantsBase):
     def __call__(self, match: _typing.opendota.Match) -> _typing.property.Match:
         """Convert opendota match to property match"""
         return _typing.property.Match(
+            league=self.get_league(match) if ('leagueid' in match and match['leagueid'] > 0) else None,
+            isleague=True if ('leagueid' in match and match['leagueid'] > 0) else False,
+
             match_id=match['match_id'],
             start_time=match['start_time'],
             lobby_type=match['lobby_type'],
@@ -277,9 +284,6 @@ class OpendotaParser(DotaconstantsBase):
 
             duration=match['duration'],
             radiant_win=match['radiant_win'],
-
-            isleague=True if ('leagueid' in match and match['leagueid'] > 0) else False,
-            league=self.get_league(match) if ('leagueid' in match and match['leagueid'] > 0) else None,
 
             players=self.get_players(match['players']),
             teams=self.get_teams(match),
@@ -334,6 +338,16 @@ class OpendotaParser(DotaconstantsBase):
 
     def get_league(self, match: _typing.opendota.Match) -> _typing.property.League | None:
         try:
+            if (match['leagueid'] not in self.leagues and 
+                match['leagueid'] not in self.prize_pools): 
+                raise exceptions.property.LeaguesJSONsNotFound
+
+            elif match['leagueid'] not in self.leagues:
+                raise exceptions.property.LeagueIDNotFound
+            
+            elif match['leagueid'] not in self.prize_pools:
+                raise exceptions.property.LeaguePPNotFound
+
             return _typing.property.League(
                 id=match['leagueid'],
                 name=self.leagues[match['leagueid']]['name'],
