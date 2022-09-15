@@ -1,3 +1,4 @@
+######## Inference exceptions ########
 class Inference(Exception):
     pass
 
@@ -32,3 +33,27 @@ class RadiantNotEnoughGames(NotEnoughGames):
 class DireNotEnoughGames(NotEnoughGames):
     def __str__(self):
         return f"Dire team: {self.team} does not have enough past games"
+
+
+
+class LeagueIDNotFound(Inference):
+    def __init__(self, leagueid):
+        self.leagueid = leagueid
+
+    def __str__(self):
+        return f"League id: {self.leagueid} not founded in leagues json"
+
+class LeaguePPNotFound(Inference):
+    def __init__(self, leagueid):
+        self.leagueid = leagueid
+
+    def __str__(self):
+        return f"League id: {self.leagueid} not founded in leagues prize pools json"
+
+class LeaguesJSONsNotFound(LeagueIDNotFound, LeaguePPNotFound):
+    def __init__(self, leagueid):
+        self.leagueid = leagueid
+
+    def __str__(self):
+        return f"League id: {self.leagueid} not founded in leagues json and leagues prize pools json"
+
