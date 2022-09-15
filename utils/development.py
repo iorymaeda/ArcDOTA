@@ -121,9 +121,19 @@ class SessionHelper:
 class OpendotaSession(SessionHelper):
     def __init__(self):
         super().__init__()
+        # if True we wait until it end and do not send requests
+        self.api_limit = False
     
+
     async def opendota_api_limit(self, sec:int , headers: dict[str, str], *args, **kwargss) -> bool | None:
-        """Return `True` if this is a opendota time limit and we must try again"""
+        """Return `True` if this is a opendota time limit and we must try again later
+
+        Opendota limit resets every minute, if a new minute has been begun after request -
+        limit has skiped and `_current_sec` will be less than `sec`
+        
+        `sec` is second before request
+        """
+        
         if not isinstance(headers, dict): return True
 
         headers = {k.lower():v for k, v in headers.items()}
@@ -134,15 +144,36 @@ class OpendotaSession(SessionHelper):
 
             if int(headers['x-rate-limit-remaining-minute']) <= 0:   
                 if self.verbose: print(f"Opendota API rate limit")
-                # If a new minute has been begun after request - limit has skiped and
-                # `_current_sec` will be less than `sec`
+
                 if self._current_sec > sec: 
-                    if self.verbose: print(f'sleep: {60-self._current_sec + 1} sec')
-                    time.sleep(60-self._current_sec + 1)
-                    # await asyncio.sleep(60-sec + 1)
+                    if self.verbose: print(f'sleep: {60-self._current_sec + 1.} sec')
+
+                    self.api_limit = True
+                    await asyncio.sleep(60-self._current_sec + 1.)
+                    self.api_limit = False
+
                 return False
         return False
                
     async def on_bad_status(self, *args, **kwargs):
         return await self.opendota_api_limit(*args, **kwargs)
 
+    async def wait_on_rate_limit(self):
+        while self.api_limit:
+            await asyncio.sleep(0.5)
+
+    async def get(self, *args, **kwargs): 
+        await self.wait_on_rate_limit()
+        return await super().get(*args, **kwargs)
+
+    async def post(self, *args, **kwargs): 
+        await self.wait_on_rate_limit()
+        return await super().get(*args, **kwargs)
+
+    async def head(self, *args, **kwargs): 
+        await self.wait_on_rate_limit()
+        return await super().get(*args, **kwargs)
+
+    async def delete(self, *args, **kwargs): 
+        await self.wait_on_rate_limit()
+        return await super().get(*args, **kwargs)
