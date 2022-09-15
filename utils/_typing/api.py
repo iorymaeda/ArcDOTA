@@ -10,3 +10,8 @@ class OOD(B):
 class Prematch(B):
     outcome: float
     OOD_method_value: list[OOD]
+
+class Error(B):
+    status_code: int
+    message: str
+    error: str
