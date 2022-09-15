@@ -156,15 +156,15 @@ class SteamWrapper(SessionHelper, ConfigBase):
         return data
 
 
-    async def fetch_tournament_prize_pool(self, leagueid:int):
+    async def fetch_tournament_prize_pool(self, leagueid:int) -> _typing.steam.GetTournamentPrizePool:
         url = f"http://api.steampowered.com/IEconDOTA2_570/GetTournamentPrizePool/v1?{leagueid=}"
         url = url + f"&{self.key}" if self.key else url
         data, status = await self.get(url)
         if status//100 not in [2, 3]:
-            raise steam.SteamError(status, data)
+            raise steam.PrizePoolNotFound(status, leagueid)
 
         if data['result']['league_id'] == leagueid: return data
-        raise steam.SteamError(500, f"League prize pool not found")
+        raise steam.PrizePoolNotFound(status, leagueid)
 
 
     async def download_replay(self, url: str, save_path: str) -> bool:
@@ -241,10 +241,7 @@ class OpendotaWrapper(OpendotaSession):
             except opendota.OpendotaError:
                 await asyncio.sleep(4)
                 print('OpendotaError: Try another one force fetch...')
-                return await self.force_fetch_game(match_id, num=num) 
-            except Exception:
-                print('Try another one force fetch...')
-                return await self.force_fetch_game(match_id, num=num) 
+                return await self.force_fetch_game(match_id, num=num)
             
          
     async def fetch_team_games(self, team: int) -> _typing.opendota.TeamMatches:
@@ -342,33 +339,32 @@ class PropertyWrapper(ConfigBase):
         self.opendota_wrapper = OpendotaWrapper()
         self.steam_wrapper = SteamWrapper()
 
-        path = self._get_curernt_path()
+        path = self._get_relative_path()
         path = path.parent.resolve()
-        self.opendota_parser = parsers.OpendotaParser(
-            dotaconstants_path= path / 'scarpe/dotaconstants',
-            leagues_path=       path / 'scarpe/output/leagues.json', 
-            prize_pools_path=   path / 'scarpe/output/prize_pools.json')
+        self.opendota_parser = parsers.OpendotaParser()
         self.property_parser = parsers.PropertyParser()
         self.evaluator = evaluator.Evaluator()
         self.scaler = scalers.DotaScaler(path=path / "inference/files/scaler_league.pkl")
 
         # //TODO: fix tokenizer, put it together with a model
         self.tokenizer = tokenizer.Tokenizer(path=path / "inference/files/tokenizer_league.pkl")
-        # //TODO: mask_type, y_output and anothers hyper-parameters put to configs
+        # //TODO: put to configs mask_type, y_output and anothers hyper-parameters 
         self.collector = TSCollector(
-            mask_type='bool', 
+            tokenizer_path=path / "inference/files/tokenizer_league.pkl",
             y_output='crossentropy', 
             teams_reg_output=False,
-            tokenizer_path=path / "inference/files/tokenizer_league.pkl",
-            )
-
+            mask_type='bool', 
+        )
         self.batch_size = 60
+
+    async def log(self, *args):
+        message = ''.join(map(str, args))
+        print(message)
 
     async def collect_players_stack(self, team: int) -> list[int]:
         stack = await self.opendota_wrapper.fetch_team_stack(team)
-        if len(stack) > 5: print("Error in stack")
+        if len(stack) > 5: await self.log("Error in stack")
         return stack[:5]
-
 
     async def prematch(self, team1: int, team2: int, match_id:int=None) -> dict:
         assert team1 != 0 and team2 != 0
@@ -384,18 +380,18 @@ class PropertyWrapper(ConfigBase):
         await self.opendota_wrapper.reset()
 
         corpus = await self.prematch_corpus(team1=team1, team2=team2, match_id=match_id)
-        print("prematch_corpus parsed")
+        await self.log("prematch_corpus parsed")
         anchor = await self.prematch_anchor(team1=team1, team2=team2)
-        print("prematch_anchor parsed")
+        await self.log("prematch_anchor parsed")
 
         corpus = self.scaler.transform(corpus, 'yeo-johnson', mode='both')
-        print('collect windows')
+        await self.log('collect windows')
         sample = self.collector.collect_windows(
             games=corpus, anchor=anchor, tokenize=True, 
         )
-        print('collected')
-        print(sample['r_window']['seq_len'])
-        print(sample['d_window']['seq_len'])
+        await self.log('collected')
+        await self.log(sample['r_window']['seq_len'])
+        await self.log(sample['d_window']['seq_len'])
 
         f_config = self._get_config('features')
         if sample['r_window']['seq_len'] < f_config['league']['window_min_size']:
@@ -407,7 +403,6 @@ class PropertyWrapper(ConfigBase):
         await self.steam_wrapper.close()
         await self.opendota_wrapper.close()
         return sample
-
 
     async def prematch_anchor(self, team1: int, team2: int, match_id:int|None=None):
         if match_id is not None:
@@ -426,7 +421,6 @@ class PropertyWrapper(ConfigBase):
         anchor = pd.DataFrame(anchor)
         return anchor
 
-
     async def prematch_corpus(self, team1: int, team2: int, match_id:int|None=None):
         team1_matches = await self.opendota_wrapper.fetch_team_games(team1)
         team2_matches = await self.opendota_wrapper.fetch_team_games(team2)
@@ -436,59 +430,109 @@ class PropertyWrapper(ConfigBase):
             team2_matches = [match for match in team2_matches if match['match_id'] < match_id]
 
         # //TODO: optimize teams matches, remove duplicatase
-        print('parse team1 matches')
+        await self.log('parse team1 matches')
         team1_matches = await self.parse_team_matches(team1_matches)
-        print('parse team2 matches')
+        await self.log('parse team2 matches')
         team2_matches = await self.parse_team_matches(team2_matches)
 
-        print("property_parser")
+        await self.log("property_parser")
         corpus = self.property_parser(team1_matches + team2_matches)
         
 
-        print(len(corpus))
+        await self.log(len(corpus))
         # //TODO: FIXIT, this drop should be in parsing, (IN EVALUATOR)
         corpus = corpus[~(corpus['leavers'] > 0)]
-        print(len(corpus))
+        await self.log(len(corpus))
         return corpus
 
-
     async def parse_team_matches(self, matches: _typing.opendota.TeamMatches) -> list[_typing.property.Match]:
-        """Synchronous parse //TODO:improve it"""
-        window_size = self._get_config('features')['league']['window_size']
+        self.window_size = self._get_config('features')['league']['window_size']
 
         ids = set()
         batch = []
         team_matches = []   
         for idx, tmatch in enumerate(matches):
-
             match_id = tmatch['match_id']
-            print(f"parse {idx} game")
-            if (self.tokenizer.tokenize(tmatch['opposing_team_id'], teams=True) > 1 and
-                match_id not in ids and time.time() - tmatch['start_time'] < 47_304_000):
-                # //TODO: fix this start_time crutch
-                batch.append(self.opendota_wrapper.force_fetch_game(match_id))
+            await self.log(f"parse {idx} game, {match_id=}")
+
+            # //TODO: fix this start_time crutch
+            if self.tokenizer.tokenize(tmatch['opposing_team_id'], teams=True) > 1:
+                if time.time() - tmatch['start_time'] < 47_304_000:
+                    if match_id not in ids:
+                        batch.append(self.opendota_wrapper.force_fetch_game(match_id))
+                    else: await self.log(f"{match_id=} skipped, duplicated")        
+                else: await self.log(f"{match_id=} skipped, too old")    
+            else: await self.log(f"{match_id=} skipped, bad opponent: {tmatch['opposing_team_id']}")
+
 
             if len(batch) == self.batch_size:
-                done = await asyncio.gather(*batch, return_exceptions=True)
-
+                await self.__parse_batch(batch, ids, team_matches)
                 batch = []
-                matches = [item for item in done if not isinstance(item, Exception)]
-                [print(item) for item in done if isinstance(item, Exception)]
 
+            if len(team_matches) >= self.window_size:
+                break
+        
 
-                for od_match in matches:
-                    property_match = self.opendota_parser(od_match)
-                    if self.evaluator(property_match):
-                        team_matches.append(property_match)
-                        ids.add(od_match['match_id'])
+        if batch and len(team_matches) < self.window_size: 
+            await self.__parse_batch(batch, ids, team_matches)
 
-                    else: print(f"Skipped unevaluated")
-
-                    if len(team_matches) >= window_size: break
-                if len(team_matches) >= window_size: break
-
-
-            
-        print("done :", len(team_matches))
+        await self.log("done :", len(team_matches))
         return team_matches
+    
+
+    async def __parse_batch(self, batch: list, ids: set, team_matches:list|list[_typing.opendota.Match]):
+        done = await asyncio.gather(*batch, return_exceptions=True)
+
+        od_matches: _typing.opendota.Match
+        od_matches = [item for item in done if not isinstance(item, Exception)]
+        [await self.log(item) for item in done if isinstance(item, Exception)]
+
+        for od_match in od_matches:
+            property_match = await self.parse_od_match(od_match)
+            if self.evaluator(property_match):
+                team_matches.append(property_match)
+                ids.add(od_match['match_id'])
+
+            else: await self.log(f"Skipped unevaluated: {property_match.match_id}")
+
+            if len(team_matches) >= self.window_size: break
+
+    async def parse_od_match(self, match: _typing.opendota.Match):
+        try:
+            property_match = self.opendota_parser(match)
+            return property_match
+
+        except property.LeaguesJSONsNotFound as e:
+            await self._scarpe_leagues()
+            await self._scarpe_prize_pool(e.leagueid)
+
+        except property.LeaguePPNotFound as e:
+            await self._scarpe_prize_pool(e.leagueid)
+            
+        except property.LeagueIDNotFound:
+            await self._scarpe_leagues()
+        
+        self.opendota_parser = parsers.OpendotaParser()
+        await self.parse_od_match(match=match)
+        
+    async def _scarpe_leagues(self):
+        leagues = await self.opendota_wrapper.fetch_leagues()
+        path = self._get_relative_path()
+        path = path.parent.resolve()
+
+        with open(path / 'scarpe/output/leagues.json', 'w', encoding='utf-8') as f:
+            json.dump(leagues, f, ensure_ascii=False, indent=4)
+
+    async def _scarpe_prize_pool(self, leagueid):
+        pool = await self.steam_wrapper.fetch_tournament_prize_pool(leagueid=leagueid)
+        path = self._get_relative_path()
+        path = path.parent.resolve()
+
+        with open(path / 'scarpe/output/prize_pools.json', 'r', encoding='utf-8') as f:
+            prize_pools: dict[str, int] = json.load(f)
+
+        league_id = str(pool['result']['league_id'])
+        prize_pools[league_id] = pool['result']['prize_pool']
+        with open(path / 'scarpe/output/prize_pools.json', 'w', encoding='utf-8') as f:
+            json.dump(prize_pools, f, ensure_ascii=False, indent=4)
         
