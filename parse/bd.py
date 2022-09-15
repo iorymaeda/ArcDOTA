@@ -45,11 +45,7 @@ def parse_table(table, save_table, months, verbose=True):
 
 if __name__ == "__main__":
     reopen()
-    od = utils.parsers.OpendotaParser(
-        dotaconstants_path='../scarpe/dotaconstants',
-        leagues_path='../scarpe/output/leagues.json', 
-        prize_pools_path='../scarpe/output/prize_pools.json',
-    )
+    od = utils.parsers.OpendotaParser()
     parse_table(
         table='leagueMatches', 
         save_table='leagueMatches', 
