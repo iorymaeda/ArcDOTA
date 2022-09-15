@@ -22,7 +22,7 @@ class TSCollector(ConfigBase):
 
         #//TODO:fix it
         if tokenizer_path is None:
-            tokenizer_path = self._get_curernt_path() / '../parse/output/tokenizer_league.pkl'
+            tokenizer_path = self._get_relative_path() / '../parse/output/tokenizer_league.pkl'
         self.tokenizer = Tokenizer(path=tokenizer_path)
         
 

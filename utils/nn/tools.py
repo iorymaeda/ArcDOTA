@@ -52,7 +52,7 @@ class ModelLoader(PathBase):
         # ├── utils
         # │   ├── development.py
         # │   └──...
-        path = self._get_curernt_path()
+        path = self._get_relative_path()
         path = path.parent.resolve() 
         path = path / "train/output/models_w/"
         return path
@@ -67,7 +67,7 @@ class ModelLoader(PathBase):
         # ├── utils
         # │   ├── development.py
         # │   └──...
-        path = self._get_curernt_path()
+        path = self._get_relative_path()
         path = path.parent.resolve()
         path = path / "inference/models_w/"
         return path
@@ -83,10 +83,14 @@ class ModelLoader(PathBase):
 
         path = self.__get_prematch_folder()
         models = {}
-        for num in ensemble_nums:
+        for idx, num in enumerate(ensemble_nums):
             checkpoint = torch.load(path / f'Ensemble {num} {name}.torch', map_location=torch.device('cpu'))
+
             for config in checkpoint['configs']:
-                ConfigBase._configs[config] = checkpoint['configs'][config]
+                if idx == 0:
+                    ConfigBase._configs[config] = checkpoint['configs'][config]
+                else:
+                    assert ConfigBase._configs[config] == checkpoint['configs'][config], 'Something wrong with configs'
                 
             model = PrematchModel(**checkpoint['kwargs']).eval()
             model.to(device)
