@@ -182,7 +182,8 @@ class OpendotaWrapper(OpendotaSession):
 
     def __init__(self):
         super().__init__()
-        self.key = os.environ.get('opendota_api_key')
+        #self.key = os.environ.get('opendota_api_key')
+        self.key = "955d19ae-6346-4d17-96eb-0e7af728d08d"
         self.key = '' if self.key is None else f"api_key={self.key}"
 
 
