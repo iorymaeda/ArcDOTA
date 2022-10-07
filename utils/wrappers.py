@@ -460,11 +460,8 @@ class PropertyWrapper(ConfigBase):
             if self.tokenizer.tokenize(tmatch['opposing_team_id'], teams=True) > 1:
                 if time.time() - tmatch['start_time'] < 47_304_000:
                     if match_id not in ids:
-                        dataNew = self.opendota_wrapper.force_fetch_game(match_id)
-                        batch.append(dataNew)
-
-                        print(len(batch))
-                        print(dataNew)
+                        batch.append(self.opendota_wrapper.force_fetch_game(match_id))
+                        print(batch)
                         quit()
                     else: await self.log(f"{match_id=} skipped, duplicated")        
                 else: await self.log(f"{match_id=} skipped, too old")    
