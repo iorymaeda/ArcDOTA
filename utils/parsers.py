@@ -336,7 +336,6 @@ class OpendotaParser(DotaconstantsBase):
         return _typing.property.Players(radiant=r, dire=d)
         
 
-
     def get_league(self, match: _typing.opendota.Match) -> _typing.property.League | None:
         try:
             if (match['leagueid'] not in self.leagues and
