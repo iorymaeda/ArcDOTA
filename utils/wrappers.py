@@ -130,7 +130,7 @@ class SteamWrapper(SessionHelper, ConfigBase):
 
     def __init__(self):
         super().__init__()    
-        self.key = os.environ.get('steam_api_key')
+        self.key = 'F7A373E065DE63F59F7D88967FB9156C'
         self.key = '' if self.key is None else f"key={self.key}"
 
 
@@ -182,7 +182,7 @@ class OpendotaWrapper(OpendotaSession):
 
     def __init__(self):
         super().__init__()
-        self.key = os.environ.get('opendota_api_key')
+        self.key = '955d19ae-6346-4d17-96eb-0e7af728d08d'
         self.key = '' if self.key is None else f"api_key={self.key}"
 
 
@@ -512,8 +512,9 @@ class PropertyWrapper(ConfigBase):
         except property.LeagueIDNotFound:
             await self._scarpe_leagues()
         
-        self.opendota_parser = parsers.OpendotaParser()
-        await self.parse_od_match(match=match)
+            self.opendota_parser = parsers.OpendotaParser()
+            return await self.parse_od_match(match=match)
+
         
     async def _scarpe_leagues(self):
         leagues = await self.opendota_wrapper.fetch_leagues()
