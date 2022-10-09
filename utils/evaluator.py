@@ -93,12 +93,15 @@ class Evaluator(ConfigBase):
         elif isinstance(match, _typing.property.Match):
             with suppress(TypeError, KeyError):
                 for tier in config['tiers']:
-                    if match.league.tier == tier:
-                        if config[tier]['include']:
-                            return match.league.prize_pool >= config['tiers'][tier]['prize_pool']
-                        else:
-                            return False
-                
+                    if match.league:
+                        if match.league.tier == tier:
+                            if config[tier]['include']:
+                                return match.league.prize_pool >= config['tiers'][tier]['prize_pool']
+                            else:
+                                return False
+                    else:
+                        return False
+
             # process unexcepted tier
             if config['tiers']['others']['include']:
                 return match.league.prize_pool >= config['tiers']['others']['prize_pool']
