@@ -338,21 +338,21 @@ class OpendotaParser(DotaconstantsBase):
 
     def get_league(self, match: _typing.opendota.Match) -> _typing.property.League | None:
         try:
-            if (match['leagueid'] not in self.leagues and 
-                match['leagueid'] not in self.prize_pools): 
+            if (match['league_id'] not in self.leagues and
+                match['league_id'] not in self.prize_pools):
                 raise exceptions.property.LeaguesJSONsNotFound
 
-            elif match['leagueid'] not in self.leagues:
+            elif match['league_id'] not in self.leagues:
                 raise exceptions.property.LeagueIDNotFound
             
-            elif match['leagueid'] not in self.prize_pools:
+            elif match['league_id'] not in self.prize_pools:
                 raise exceptions.property.LeaguePPNotFound
 
             return _typing.property.League(
                 id=match['leagueid'],
-                name=self.leagues[match['leagueid']]['name'],
-                tier=self.leagues[match['leagueid']]['tier'],
-                prize_pool=self.prize_pools[match['leagueid']],
+                name=self.leagues[match['league_id']]['name'],
+                tier=self.leagues[match['league_id']]['tier'],
+                prize_pool=self.prize_pools[match['league_id']],
             )
         except KeyError:
             return None
