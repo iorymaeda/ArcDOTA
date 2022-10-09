@@ -277,7 +277,7 @@ class OpendotaParser(DotaconstantsBase):
         league = None
 
         while not is_league_parse:
-            print('Try to get league info, counter - ' + checker_count + ' \n')
+            print('Try to get league info, counter - ' + str(checker_count) + ' \n')
 
             if checker_count >= 3:
                 break
@@ -312,9 +312,6 @@ class OpendotaParser(DotaconstantsBase):
         leagues = await self.opendota_wrapper.fetch_leagues()
         path = self._get_relative_path()
         path = path.parent.resolve()
-
-        print(path)
-        quiet()
 
         with open(path / 'scarpe/output/leagues.json', 'w', encoding='utf-8') as f:
             json.dump(leagues, f, ensure_ascii=False, indent=4)
