@@ -277,6 +277,8 @@ class OpendotaParser(DotaconstantsBase):
         league = None
 
         while not is_league_parse:
+            print('Try to get league info, counter - ' + checker_count + ' \n')
+
             if checker_count >= 3:
                 break
             try:
