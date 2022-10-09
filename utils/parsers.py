@@ -280,7 +280,7 @@ class OpendotaParser(DotaconstantsBase):
             print('Try to get league info, counter - ' + str(checker_count) + ' \n')
 
             if 'leaguid' not in match:
-                print(match.match_id)
+                print(match)
                 quiet()
 
             if checker_count >= 3:
