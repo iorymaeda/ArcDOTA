@@ -281,7 +281,8 @@ class OpendotaParser(DotaconstantsBase):
 
             if 'leaguid' not in match:
                 print(str(match['match_id']) + ' \n')
-                print(match['league']['leaguid'])
+                print(str(match['league']['leaguid']) + ' \n' + ' \n')
+                print(match + ' \n' + ' \n')
                 quiet()
 
             if checker_count >= 3:
