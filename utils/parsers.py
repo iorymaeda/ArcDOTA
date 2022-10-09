@@ -384,7 +384,7 @@ class OpendotaParser(DotaconstantsBase):
         try:
             if (match['leagueid'] not in self.leagues and
                 match['leagueid'] not in self.prize_pools):
-                raise exceptions.property.LeaguesJSONsNotFound
+                raise exceptions.property.LeaguesJSONsNotFound(match['leagueid'])
 
             elif match['leagueid'] not in self.leagues:
                 raise exceptions.property.LeagueIDNotFound
