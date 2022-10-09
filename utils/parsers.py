@@ -316,6 +316,9 @@ class OpendotaParser(DotaconstantsBase):
         path = self._get_relative_path()
         path = path.parent.resolve()
 
+        print(path)
+        quiet()
+
         with open(path / 'scarpe/output/leagues.json', 'w', encoding='utf-8') as f:
             json.dump(leagues, f, ensure_ascii=False, indent=4)
 
