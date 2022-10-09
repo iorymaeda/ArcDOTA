@@ -282,7 +282,7 @@ class OpendotaParser(DotaconstantsBase):
             if checker_count >= 3:
                 break
             try:
-                league = self.get_league(match) if ('leagueid' in match and match['leagueid'] > 0) else None
+                league = self.get_league(match) if ('league2id' in match and match['leagueid'] > 0) else None
                 is_league_parse = True
             except exceptions.property.LeaguesJSONsNotFound as e:
                 self._scarpe_leagues()
