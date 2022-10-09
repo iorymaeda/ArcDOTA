@@ -271,8 +271,23 @@ class OpendotaParser(DotaconstantsBase):
 
     def __call__(self, match: _typing.opendota.Match) -> _typing.property.Match:
         """Convert opendota match to property match"""
+
+        is_league_parse = False
+        checker_count = 0
+        league = None
+
+        while not is_league_parse:
+            if checker_count >= 3:
+                break
+            try:
+                league = self.get_league(match) if ('leagueid' in match and match['leagueid'] > 0) else None
+                is_league_parse = True
+            except LeaguesJSONsNotFound as e:
+                await self._scarpe_leagues()
+                await self._scarpe_prize_pool(e.leagueid)
+
         return _typing.property.Match(
-            league=self.get_league(match) if ('leagueid' in match and match['leagueid'] > 0) else None,
+            league=league,
             isleague=True if ('leagueid' in match and match['leagueid'] > 0) else False,
 
             match_id=match['match_id'],
@@ -287,10 +302,20 @@ class OpendotaParser(DotaconstantsBase):
 
             players=self.get_players(match['players']),
             teams=self.get_teams(match),
-            
+
             overview=self.get_overview(match),
         )
 
+    async def _scarpe_leagues(self):
+        leagues = await self.opendota_wrapper.fetch_leagues()
+        path = self._get_relative_path()
+        path = path.parent.resolve()
+
+        print(path)
+        quiet()
+
+        with open(path / 'scarpe/output/leagues.json', 'w', encoding='utf-8') as f:
+            json.dump(leagues, f, ensure_ascii=False, indent=4)
 
     def get_teams(self, match: _typing.opendota.Match) -> _typing.property.Teams | None:
         try:
