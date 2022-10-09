@@ -284,7 +284,7 @@ class OpendotaParser(DotaconstantsBase):
             try:
                 league = self.get_league(match) if ('leagueid' in match and match['leagueid'] > 0) else None
                 is_league_parse = True
-            except LeaguesJSONsNotFound as e:
+            except exceptions.property.LeaguesJSONsNotFound as e:
                 self._scarpe_leagues()
                 self._scarpe_prize_pool(e.leagueid)
 
