@@ -279,17 +279,12 @@ class OpendotaParser(DotaconstantsBase):
         while not is_league_parse:
             print('Try to get league info, counter - ' + str(checker_count) + ' \n')
 
-            if 'leagueid' not in match:
-                print(str(match['match_id']) + ' \n')
-                # print(str(match['league']['leaguid']) + ' \n' + ' \n')
-                # print(match + ' \n' + ' \n')
-                quiet()
-
             if checker_count >= 3:
                 break
             try:
                 league = self.get_league(match) if ('leagueid' in match and match['leagueid'] > 0) else None
                 is_league_parse = True
+                checker_count = checker_count + 1
             except exceptions.property.LeaguesJSONsNotFound as e:
                 self._scarpe_leagues()
                 self._scarpe_prize_pool(e.leagueid)
