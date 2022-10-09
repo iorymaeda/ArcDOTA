@@ -285,8 +285,8 @@ class OpendotaParser(DotaconstantsBase):
                 league = self.get_league(match) if ('leagueid' in match and match['leagueid'] > 0) else None
                 is_league_parse = True
             except LeaguesJSONsNotFound as e:
-                await self._scarpe_leagues()
-                await self._scarpe_prize_pool(e.leagueid)
+                self._scarpe_leagues()
+                self._scarpe_prize_pool(e.leagueid)
 
         return _typing.property.Match(
             league=league,
@@ -318,6 +318,20 @@ class OpendotaParser(DotaconstantsBase):
 
         with open(path / 'scarpe/output/leagues.json', 'w', encoding='utf-8') as f:
             json.dump(leagues, f, ensure_ascii=False, indent=4)
+
+
+    async def _scarpe_prize_pool(self, leagueid):
+        pool = await self.steam_wrapper.fetch_tournament_prize_pool(leagueid=leagueid)
+        path = self._get_relative_path()
+        path = path.parent.resolve()
+
+        with open(path / 'scarpe/output/prize_pools.json', 'r', encoding='utf-8') as f:
+            prize_pools: dict[str, int] = json.load(f)
+
+        league_id = str(pool['result']['league_id'])
+        prize_pools[league_id] = pool['result']['prize_pool']
+        with open(path / 'scarpe/output/prize_pools.json', 'w', encoding='utf-8') as f:
+            json.dump(prize_pools, f, ensure_ascii=False, indent=4)
 
     def get_teams(self, match: _typing.opendota.Match) -> _typing.property.Teams | None:
         try:
