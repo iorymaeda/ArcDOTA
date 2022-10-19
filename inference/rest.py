@@ -84,8 +84,6 @@ async def hawk_get_matches(date:str):
     try:
 
         chrome_options = uc.ChromeOptions()
-        chrome_options.add_argument("--remote-debugging-port=9222")
-        chrome_options.add_argument("--no-sandbox")
         #chrome_options.binary_location = '/usr/local/bin/chromedriver'
 
         driver = webdriver.Chrome('/usr/local/bin/chromedriver', options=chrome_options)
