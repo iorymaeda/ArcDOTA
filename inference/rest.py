@@ -89,8 +89,6 @@ async def hawk_get_matches(date:str):
 
         options = Options()
         #chrome_options.binary_location = '/usr/local/bin/chromedriver'
-        options.add_argument('--disable-infobars')
-        options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--no-sandbox')
         options.add_argument('--remote-debugging-port=9222')
 
@@ -123,6 +121,8 @@ async def hawk_get_matches(date:str):
 
         # Set the interceptor on the driver
         driver.request_interceptor = interceptor
+
+        driver.get('https://hawk.live/matches/recent/2022-10-19')
 
         driver.get('view-source:https://hawk.live/matches/recent/2022-10-19')
         content = driver.page_source
