@@ -82,13 +82,7 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
 @app.get("/hawk/get-matches")
 async def hawk_get_matches(date:str):
     try:
-        chrome_options = uc.ChromeOptions()
-
-        # Create a new instance of the Chrome driver (or Firefox)
-        driver = uc.Chrome(
-            options=chrome_options,
-            seleniumwire_options={}
-        )
+        driver = webdriver.Chrome(executable_path='/usr/lib/chromium-browser/chromedriver', options=chrome_options)
 
         # Create a request interceptor
         def interceptor(request):
@@ -108,7 +102,6 @@ async def hawk_get_matches(date:str):
             request.headers['x-inertia'] = 'true'
             request.headers['x-inertia-version'] = 'b68330e61c61ba0f7b85100b16f22e48'
             request.headers['x-requested-with'] = 'XMLHttpRequest'
-            #request.headers['x-xsrf-token'] = 'eyJpdiI6Ik12S0wrWHJjQ3lIeWpXc2dNQ2QyNUE9PSIsInZhbHVlIjoiWmpPc0hMWVZ2aU8yWGc5ZC83bHN2c041cHB6R2pnck1rbURjekNydTlTcjgxS0lEalFQOEM4c01OOHFvRkdUNDZ6T1VvU1YxQkxmV2ZiTzZpb3hDUE1wc0E0SmthaE1JcGRJS245NEZhK0tBeUhMaVE0WmkrQit6Qkx1ZlpxNWciLCJtYWMiOiI1MmYyMTZlMmQyOWRhYzE0ZTJhYWNmMjU2OWM3ZTVlYTg1ZDUwNjUyMDljNzBkMDI5ZGIwNmE5ODQ2MjdjOWQ2IiwidGFnIjoiIn0='
 
 
         # Set the interceptor on the driver
@@ -127,7 +120,6 @@ async def hawk_get_matches(date:str):
         return JSONResponse(
             status_code=404,
             message=str(e),
-            error=str(type(e).__name__)
         )
 
 
