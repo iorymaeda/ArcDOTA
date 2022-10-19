@@ -4,6 +4,7 @@ from seleniumwire import webdriver  # Import from seleniumwire
 import seleniumwire.undetected_chromedriver as uc
 from selenium.webdriver.support.ui import WebDriverWait
 import time
+import os
 
 import torch
 import uvicorn
