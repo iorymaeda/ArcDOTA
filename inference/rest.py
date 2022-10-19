@@ -85,7 +85,7 @@ async def hawk_get_matches(date:str):
         chrome_options = uc.ChromeOptions()
         chrome_options.add_argument("--remote-debugging-port=9222")
         chrome_options.add_argument("--no-sandbox")
-        chrome_options.binary_location = '/usr/bin/google-chrome-stable'
+#        chrome_options.binary_location = '/usr/bin/google-chrome-stable'
 
         driver = webdriver.Chrome(executable_path='/usr/lib/chromium-browser/chromedriver', options=chrome_options)
 
