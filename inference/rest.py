@@ -93,7 +93,7 @@ async def hawk_get_matches(date:str):
 
 
 
-        driver = webdriver.Firefox()
+        driver = webdriver.Chrome()
 
 
         # Create a request interceptor
