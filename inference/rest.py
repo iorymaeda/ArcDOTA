@@ -1,9 +1,9 @@
 import sys; sys.path.append("../")
 import traceback
-from seleniumwire import webdriver  # Import from seleniumwire
-import seleniumwire.undetected_chromedriver as uc
 from selenium.webdriver.support.ui import WebDriverWait
 import time
+from selenium.webdriver.chrome.options import Options
+from selenium import webdriver
 
 import torch
 import uvicorn
@@ -83,10 +83,17 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
 async def hawk_get_matches(date:str):
     try:
 
-        chrome_options = uc.ChromeOptions()
+        options = Options()
         #chrome_options.binary_location = '/usr/local/bin/chromedriver'
 
-        driver = webdriver.Chrome('/usr/local/bin/chromedriver', options=chrome_options)
+        options.add_argument("--start-maximized") #open Browser in maximized mode
+        options.binary_location = '/usr/bin/google-chrome'
+        options.add_argument("--no-sandbox") #bypass OS security model
+        options.add_argument("--disable-dev-shm-usage") #overcome limited resource problems
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
+
+        driver = webdriver.Chrome('/usr/local/bin/chromedriver', options=options)
 
 
         # Create a request interceptor
