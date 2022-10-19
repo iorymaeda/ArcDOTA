@@ -4,6 +4,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 import time
 from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
+from pyvirtualdisplay import Display
 
 import torch
 import uvicorn
@@ -83,6 +84,9 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
 async def hawk_get_matches(date:str):
     try:
 
+        display = Display(visible=0, size=(1366, 768))
+        display.start()
+
         options = Options()
         #chrome_options.binary_location = '/usr/local/bin/chromedriver'
 
@@ -123,6 +127,8 @@ async def hawk_get_matches(date:str):
         driver.get('view-source:https://hawk.live/matches/recent/2022-10-19')
         content = driver.page_source
         driver.close()
+
+        display.stop()
 
         test = content[338:]
         test = test[0:len(test)-78]
