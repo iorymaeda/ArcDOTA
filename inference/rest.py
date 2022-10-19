@@ -90,13 +90,10 @@ async def hawk_get_matches(date:str):
         options = Options()
         #chrome_options.binary_location = '/usr/local/bin/chromedriver'
 
-        options.add_argument("--start-maximized") #open Browser in maximized mode
-        options.binary_location = '/usr/bin/google-chrome'
-        options.add_argument("--disable-dev-shm-usage") #overcome limited resource problems
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
 
-        driver = webdriver.Chrome('/usr/local/bin/chromedriver', options=options)
+
+
+        driver = webdriver.Firefox(, options=options)
 
 
         # Create a request interceptor
