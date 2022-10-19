@@ -82,7 +82,10 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
 @app.get("/hawk/get-matches")
 async def hawk_get_matches(date:str):
     try:
-        driver = webdriver.Chrome(executable_path='/usr/lib/chromium-browser/chromedriver')
+        chrome_options = uc.ChromeOptions()
+
+        driver = webdriver.Chrome(executable_path='/usr/lib/chromium-browser/chromedriver', options=chrome_options)
+
 
         # Create a request interceptor
         def interceptor(request):
@@ -104,6 +107,7 @@ async def hawk_get_matches(date:str):
             request.headers['x-requested-with'] = 'XMLHttpRequest'
 
 
+
         # Set the interceptor on the driver
         driver.request_interceptor = interceptor
 
@@ -119,7 +123,8 @@ async def hawk_get_matches(date:str):
     except Exception as e:
         return JSONResponse(
             status_code=404,
-            message=str(e),
+            message=str(e)
+
         )
 
 
