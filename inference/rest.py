@@ -90,6 +90,7 @@ async def hawk_get_matches(date:str):
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("start-maximized")
         chrome_options.add_argument("disable-infobars")
+        chrome_options.add_argument("--headless")
 
         driver = webdriver.Chrome(executable_path='/usr/lib/chromium-browser/chromedriver', options=chrome_options)
 
