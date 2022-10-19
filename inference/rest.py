@@ -91,9 +91,9 @@ async def hawk_get_matches(date:str):
         #chrome_options.binary_location = '/usr/local/bin/chromedriver'
 
 
+        options.binary_location = '/usr/bin/google-chrome'
 
-
-        driver = webdriver.Chrome()
+        driver = webdriver.Chrome('/usr/local/bin/chromedriver', options=options)
 
 
         # Create a request interceptor
