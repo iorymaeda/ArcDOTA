@@ -114,7 +114,7 @@ async def hawk_get_matches(date:str):
         # Set the interceptor on the driver
         driver.request_interceptor = interceptor
 
-        driver.get('view-source:https://hawk.live/matches/recent/2022-10-19)
+        driver.get('view-source:https://hawk.live/matches/recent/2022-10-19')
         content = driver.page_source
         driver.close()
 
