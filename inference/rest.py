@@ -82,10 +82,24 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
 @app.get("/hawk/get-matches")
 async def hawk_get_matches(date:str):
     try:
+
+        def get_chrome():
+            if os.path.isfile('/usr/bin/chromium-browser'):
+                return '/usr/bin/chromium-browser'
+            elif os.path.isfile('/usr/bin/chromium'):
+                return '/usr/bin/chromium'
+            elif os.path.isfile('/usr/bin/chrome'):
+                return '/usr/bin/chrome'
+            elif os.path.isfile('/usr/bin/google-chrome'):
+                return '/usr/bin/google-chrome'
+            else:
+                return None
+
+
         chrome_options = uc.ChromeOptions()
         chrome_options.add_argument("--remote-debugging-port=9222")
         chrome_options.add_argument("--no-sandbox")
-#        chrome_options.binary_location = '/usr/bin/google-chrome-stable'
+        chrome_options.binary_location = get_chrome()
 
         driver = webdriver.Chrome(executable_path='/usr/lib/chromium-browser/chromedriver', options=chrome_options)
 
