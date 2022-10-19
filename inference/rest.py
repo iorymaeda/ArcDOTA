@@ -82,7 +82,7 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
 @app.get("/hawk/get-matches")
 async def hawk_get_matches(date:str):
     try:
-        driver = webdriver.Chrome(executable_path='/usr/lib/chromium-browser/chromedriver', options=chrome_options)
+        driver = webdriver.Chrome(executable_path='/usr/lib/chromium-browser/chromedriver')
 
         # Create a request interceptor
         def interceptor(request):
