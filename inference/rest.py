@@ -89,6 +89,7 @@ async def hawk_get_matches(date:str):
 
         options = Options()
         #chrome_options.binary_location = '/usr/local/bin/chromedriver'
+        options.add_argument('--remote-debugging-port=9222')
 
 
         options.binary_location = '/usr/bin/google-chrome'
