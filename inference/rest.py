@@ -92,7 +92,6 @@ async def hawk_get_matches(date:str):
 
         options.add_argument("--start-maximized") #open Browser in maximized mode
         options.binary_location = '/usr/bin/google-chrome'
-        options.add_argument("--no-sandbox") #bypass OS security model
         options.add_argument("--disable-dev-shm-usage") #overcome limited resource problems
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
