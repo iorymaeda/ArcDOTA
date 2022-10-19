@@ -101,7 +101,7 @@ async def hawk_get_matches(date:str):
         chrome_options.add_argument("--remote-debugging-port=9222")
         chrome_options.add_argument("--no-sandbox")
 
-        driver = webdriver.Chrome(executable_path='/usr/lib/chromium-browser/chromedriver', options=chrome_options)
+        driver = webdriver.Chrome(options=chrome_options)
 
 
         # Create a request interceptor
