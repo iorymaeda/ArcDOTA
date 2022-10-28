@@ -96,7 +96,7 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
 
 
 @app.get("/inventory/get-for-csgo")
-async def hawk_get_matches(steamid:str):
+async def hawk_get_matches(steamid:str, appid:str):
     try:
 
         ua = UserAgent()
@@ -120,39 +120,13 @@ async def hawk_get_matches(steamid:str):
         driver.request_interceptor = interceptor
         driver.get('https://steamcommunity.com/profiles/' + steamid + '/inventory/#730')
 
-        time.sleep(2)
+        totalItemsText = driver.find_element(By.ID, "inventory_link_" + appid).find_element(By.CLASS_NAME, "games_list_tab_number").text
 
-        totalPages = int(driver.find_element(By.ID, "pagecontrol_max").text)
-
-        data = []
-
-        for i in range(0, totalPages):
-
-            inventories = driver.find_element(By.ID, 'inventory_'+steamid+'_730_2')
-            allInventories = inventories.find_elements(By.CLASS_NAME, "inventory_page")
-
-            for x in allInventories:
-
-                if x.is_displayed():
-                    items = x.find_elements(By.CLASS_NAME, "itemHolder")
-                    for item in items:
-                        item.click()
-
-                        itemInfo = driver.find_elements(By.CLASS_NAME, "inventory_iteminfo")
-
-                        for info in itemInfo:
-                            if info.is_displayed():
-                                needId = info.get_attribute('id') + '_item_name'
-
-                                name = driver.find_element(By.ID, needId)
-                                data.append(name.text)
-
-            driver.find_element(By.ID, "pagebtn_next").click()
-            time.sleep(0.1)
+        totalItems = int(re.findall("\d+", totalItemsText)[0])
 
         del driver
 
-        return data
+        return totalItems
 
     except Exception as e:
         return JSONResponse(
