@@ -144,7 +144,7 @@ async def inventory_get_for_account(steamid:str, appid:str):
         driver.request_interceptor = interceptor
 
         driver.get('view-source:https://steamcommunity.com/profiles/'+steamid+'/inventory/json/'+appid+'/2/?l=english&count=10000')
-        content = driver.find_element_by_xpath("//div[@id='json']").text
+        content = driver.find_element(By.XPATH, "//div[@id='json']").text
         driver.close()
 
         parsed_json = json.loads(content)
