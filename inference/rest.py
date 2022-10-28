@@ -107,6 +107,7 @@ async def hawk_get_matches(steamid:str):
             request.headers['Accept-Language'] = 'en-US;q=0.8,en;q=0.7'
             request.headers['Host'] = 'steamcommunity.com'
 
+        options = Options()
         options.add_argument('--no-sandbox')
         options.add_argument('--headless')
         options.add_argument('--disable-gpu')
