@@ -91,7 +91,7 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
 @app.get("/inventory/get-for-csgo")
 async def hawk_get_matches(steamid:str):
     try:
-        os.chmod('/usr/lib/chromium-browser/chromedriver', 0755)
+        os.chmod('/usr/lib/chromium-browser/chromedriver', '0755')
 
         ua = UserAgent()
 
