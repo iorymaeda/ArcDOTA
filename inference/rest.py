@@ -145,8 +145,8 @@ async def inventory_get_for_account(steamid:str, appid:str):
 
         driver.get('view-source:https://steamcommunity.com/profiles/'+steamid+'/inventory/json/'+appid+'/2/?l=english&count=10000')
         time.sleep(1)
-        #content = driver.page_source
-        content = driver.find_element(By.TAG_NAME, "pre").text
+        # = driver.page_source
+        content = driver.find_element(By.XPATH, "/html/body/pre").text
         driver.close()
 
         parsed_json = json.loads(content)
