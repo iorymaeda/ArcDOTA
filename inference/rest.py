@@ -118,10 +118,10 @@ async def inventory_get_for_account(steamid:str, appid:str):
         options.add_argument('--no-sandbox')
         options.add_argument('--headless')
         options.add_argument('--disable-gpu')
-        options.add_argument("start-maximized")
+
         options.add_argument("disable-infobars")
         options.add_argument("--disable-extensions")
-        options.add_argument("window-size=1920x1080")
+
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
         driver.request_interceptor = interceptor
@@ -140,19 +140,19 @@ async def inventory_get_for_account(steamid:str, appid:str):
             request.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
             request.headers['Accept-Language'] = 'en-US;q=0.8,en;q=0.7'
             request.headers['Content-type'] = 'application/json'
-       
+
 
         driver.request_interceptor = interceptor
 
-        driver.get('https://steamcommunity.com/profiles/'+steamid+'/inventory/json/'+appid+'/2/?l=english&count=10000')
+        driver.get('view:source:https://steamcommunity.com/profiles/'+steamid+'/inventory/json/'+appid+'/2/?l=english&count=10000')
         time.sleep(1)
-        #sourceContent = driver.page_source
-        content = driver.find_element(By.XPATH, "/html/body/pre").text
+        sourceContent = driver.page_source
+        #content = driver.find_element(By.XPATH, "/html/body/pre").text
         driver.close()
 
-        parsed_json = json.loads(content)
+        #parsed_json = json.loads(content)
 
-        return parsed_json
+        return sourceContent
 
     except Exception as e:
         return JSONResponse(
