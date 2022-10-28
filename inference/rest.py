@@ -160,9 +160,9 @@ async def inventory_get_for_account(steamid:str, appid:str):
         test = content[338:]
         test = test[0:len(test)-78]
 
-        data = [json.loads(line) for line in test]
+       # data = [json.loads(line) for line in test]
 
-        return data
+        return content
 
     except Exception as e:
         return JSONResponse(
