@@ -112,7 +112,7 @@ async def hawk_get_matches(steamid:str):
        # options.add_argument('--remote-debugging-port=9515')
        # options.binary_location = '/usr/bin/google-chrome-stable'
 
-        driver = webdriver.Chrome('/usr/bin/chromedriverchromedriver', options = options)
+        driver = webdriver.Chrome(options = options)
 
         driver.request_interceptor = interceptor
         driver.get('https://steamcommunity.com/profiles/' + steamid + '/inventory/#730')
