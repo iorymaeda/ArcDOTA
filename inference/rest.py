@@ -110,6 +110,10 @@ async def hawk_get_matches(steamid:str, appid:str):
             request.headers['Host'] = 'steamcommunity.com'
 
         options = Options()
+
+        prefs = {"profile.managed_default_content_settings.images": 2}
+        options.add_experimental_option("prefs", prefs)
+
         options.add_argument('--no-sandbox')
         options.add_argument('--headless')
         options.add_argument('--disable-gpu')
