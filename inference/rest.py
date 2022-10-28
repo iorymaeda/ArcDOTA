@@ -150,7 +150,7 @@ async def inventory_get_for_account(steamid:str, appid:str):
         driver.request_interceptor = interceptor
 
         driver.get('view-source:https://steamcommunity.com/profiles/'+steamid+'/inventory/json/'+appid+'/2/?l=english&count=10000')
-        content = ()driver.page_source).encode('utf-8')
+        content = (driver.page_source).encode('utf-8')
         driver.close()
 
         #totalItemsText.replace("(", "")
