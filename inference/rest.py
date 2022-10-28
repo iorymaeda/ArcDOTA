@@ -129,7 +129,7 @@ async def inventory_get_for_account(steamid:str, appid:str):
         main_url = 'https://steamcommunity.com/profiles/' + steamid + '/inventory/#' + appid
 
         driver.get(main_url)
-        
+
         time.sleep(1)
 
         totalItemsText = driver.find_element(By.ID, "inventory_link_" + appid).find_element(By.CLASS_NAME, "games_list_tab_number").text
@@ -160,7 +160,9 @@ async def inventory_get_for_account(steamid:str, appid:str):
         test = content[338:]
         test = test[0:len(test)-78]
 
-        return json.loads(test)
+        data = [json.loads(line) for line in test]
+
+        return data
 
     except Exception as e:
         return JSONResponse(
