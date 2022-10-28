@@ -128,6 +128,8 @@ async def hawk_get_matches(steamid:str, appid:str):
 
         totalItemsText = driver.find_element(By.ID, "inventory_link_" + appid).find_element(By.CLASS_NAME, "games_list_tab_number").text
 
+        totalItemsText.replace(",", "")
+
         totalItems = int(re.findall("\d+", totalItemsText)[0])
 
         del driver
