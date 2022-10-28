@@ -141,6 +141,8 @@ async def inventory_get_for_account(steamid:str, appid:str):
 
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
+        driver.get(main_url)
+
         for cookie in cookies:
             driver.add_cookie(cookie)
 
