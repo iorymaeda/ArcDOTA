@@ -221,7 +221,13 @@ async def hawk_get_matches(date:str):
 
         json = json.loads(test)
 
-        return json
+        return JSONResponse(
+            status_code=200,
+            content=(
+                status_code=200,
+                data=json
+            )
+        )
 
     except Exception as e:
         return JSONResponse(
