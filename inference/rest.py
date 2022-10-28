@@ -10,6 +10,7 @@ from fake_useragent import UserAgent
 import seleniumwire.undetected_chromedriver as uc
 
 import re
+import pickle
 
 
 from selenium import webdriver
@@ -124,19 +125,40 @@ async def hawk_get_matches(steamid:str, appid:str):
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
         driver.request_interceptor = interceptor
-        driver.get('https://steamcommunity.com/profiles/' + steamid + '/inventory/#730')
+
+        main_url = 'https://steamcommunity.com/profiles/' + steamid + '/inventory/#730'
+
+        driver.get(main_url)
 
         totalItemsText = driver.find_element(By.ID, "inventory_link_" + appid).find_element(By.CLASS_NAME, "games_list_tab_number").text
-
         totalItemsText = totalItemsText.replace(",", "")
+        totalItems = int(re.findall("\d+", totalItemsText)[0])
+
+        for cookie in driver.get_cookies():
+            driver.add_cookie(cookie)
+
+        def interceptor(request):
+
+            request.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
+            request.headers['Accept-Language'] = 'en-US;q=0.8,en;q=0.7'
+            request.headers['Content-type'] = 'application/json'
+            request.headers['Host'] = 'steamcommunity.com'
+            request.headers['Referer'] = 'main_url'
+
+        driver.request_interceptor = interceptor
+
+        driver.get('view-source:https://steamcommunity.com/profiles/'+steamid+'/inventory/json/'+appid+'/2/?l=english&count=10000')
+        content = driver.page_source
+        driver.close()
+
         #totalItemsText.replace("(", "")
         #totalItemsText.replace(")", "")
 
-        totalItems = int(re.findall("\d+", totalItemsText)[0])
 
-        del driver
+        test = content[338:]
+        test = test[0:len(test)-78]
 
-        return totalItems
+        return test
 
     except Exception as e:
         return JSONResponse(
