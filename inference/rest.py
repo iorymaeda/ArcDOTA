@@ -160,7 +160,7 @@ async def inventory_get_for_account(steamid:str, appid:str):
         test = content[338:]
         test = test[0:len(test)-78]
 
-        test = test.replace("\", "")
+        test = test.replace("\\", "")
         test = '[' + test + ']'
 
        # data = [json.loads(line) for line in test]
