@@ -103,7 +103,10 @@ async def hawk_get_matches(steamid:str):
         options.add_experimental_option("prefs", prefs)
 
         options.add_argument('-headless')
-        options.add_argument('window-size=1920x1080');
+        options.add_argument('window-size=1920x1080')
+        options.addArguments("--no-sandbox")
+        options.addArguments("--disable-dev-shm-usage")
+
         driver = webdriver.Chrome(options = options)
 
         driver.request_interceptor = interceptor
