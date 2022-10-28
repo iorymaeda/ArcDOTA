@@ -99,7 +99,7 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
 
 
 @app.get("/inventory/get-for-account")
-async def hawk_get_matches(steamid:str, appid:str):
+async def inventory_get_for_account(steamid:str, appid:str):
     try:
 
         ua = UserAgent()
@@ -158,7 +158,7 @@ async def hawk_get_matches(steamid:str, appid:str):
         test = content[338:]
         test = test[0:len(test)-78]
 
-        return test
+        return JSONResponse(content=json.loads(test)
 
     except Exception as e:
         return JSONResponse(
@@ -219,15 +219,7 @@ async def hawk_get_matches(date:str):
         test = content[338:]
         test = test[0:len(test)-78]
 
-        json = json.loads(test)
-
-        return JSONResponse(
-            status_code=200,
-            content=(
-                status_code=200,
-                data=json
-            )
-        )
+        return test
 
     except Exception as e:
         return JSONResponse(
