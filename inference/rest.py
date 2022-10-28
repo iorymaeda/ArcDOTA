@@ -109,14 +109,15 @@ async def hawk_get_matches(steamid:str):
 
         options = Options()
         options.add_argument('--headless')
-        #options.add_argument('--no-sandbox')
+        options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('window-size=1920x1080');
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
         driver.request_interceptor = interceptor
         driver.get('https://steamcommunity.com/profiles/' + steamid + '/inventory/#730')
 
-        time.sleep(0.5)
+        time.sleep(2)
 
         totalPages = int(driver.find_element(By.ID, "pagecontrol_max").text)
 
