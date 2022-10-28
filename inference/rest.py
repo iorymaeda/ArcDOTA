@@ -106,7 +106,7 @@ async def hawk_get_matches(steamid:str):
         options.add_argument('-headless')
         options.add_argument('window-size=1920x1080')
 
-        driver = webdriver.Chrome(options = options)
+        driver = webdriver.Chrome('/usr/local/bin/chromedriver', options = options)
 
         driver.request_interceptor = interceptor
         driver.get('https://steamcommunity.com/profiles/' + steamid + '/inventory/#730')
