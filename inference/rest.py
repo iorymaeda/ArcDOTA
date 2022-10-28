@@ -102,6 +102,8 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
 async def inventory_get_for_account(steamid:str, appid:str):
     try:
 
+        cookies = ''
+
         ua = UserAgent()
 
         def interceptor(request):
@@ -130,9 +132,16 @@ async def inventory_get_for_account(steamid:str, appid:str):
 
         driver.get(main_url)
 
-        time.sleep(1)
+        time.sleep(0.5)
 
-        for cookie in driver.get_cookies():
+        cookies = driver.get_cookies()
+
+        driver.close
+        del driver
+
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
+        for cookie in cookies:
             driver.add_cookie(cookie)
 
         def interceptor(request):
@@ -144,15 +153,15 @@ async def inventory_get_for_account(steamid:str, appid:str):
 
         driver.request_interceptor = interceptor
 
-        driver.get('view:source:https://steamcommunity.com/profiles/'+steamid+'/inventory/json/'+appid+'/2/?l=english&count=10000')
-        time.sleep(1)
-        sourceContent = driver.page_source
-        #content = driver.find_element(By.XPATH, "/html/body/pre").text
+        driver.get('https://steamcommunity.com/profiles/'+steamid+'/inventory/json/'+appid+'/2/?l=english&count=10000')
+
+        #sourceContent = driver.page_source
+        content = driver.find_element(By.XPATH, "/html/body/pre").text
         driver.close()
 
-        #parsed_json = json.loads(content)
+        parsed_json = json.loads(content)
 
-        return sourceContent
+        return parsed_json
 
     except Exception as e:
         return JSONResponse(
