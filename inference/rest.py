@@ -9,6 +9,8 @@ from pyvirtualdisplay import Display
 from fake_useragent import UserAgent
 import seleniumwire.undetected_chromedriver as uc
 
+import re
+
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
