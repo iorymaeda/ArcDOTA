@@ -126,9 +126,11 @@ async def inventory_get_for_account(steamid:str, appid:str):
 
         driver.request_interceptor = interceptor
 
-        main_url = 'https://steamcommunity.com/profiles/' + steamid + '/inventory/#730'
+        main_url = 'https://steamcommunity.com/profiles/' + steamid + '/inventory/#' + appid
 
         driver.get(main_url)
+        
+        time.sleep(1)
 
         totalItemsText = driver.find_element(By.ID, "inventory_link_" + appid).find_element(By.CLASS_NAME, "games_list_tab_number").text
         totalItemsText = totalItemsText.replace(",", "")
