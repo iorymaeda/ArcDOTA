@@ -2,12 +2,18 @@ import sys; sys.path.append("../")
 import traceback
 from selenium.webdriver.support.ui import WebDriverWait
 import time
-from selenium.webdriver.chrome.options import Options
-from selenium import webdriver
+
+
 from selenium.webdriver.common.by import By
 from pyvirtualdisplay import Display
 from fake_useragent import UserAgent
 import seleniumwire.undetected_chromedriver as uc
+
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManage
 
 import time
 import requests
@@ -100,18 +106,11 @@ async def hawk_get_matches(steamid:str):
             request.headers['Accept-Language'] = 'en-US;q=0.8,en;q=0.7'
             request.headers['Host'] = 'steamcommunity.com'
 
-        options = uc.ChromeOptions()
-#         prefs = {"profile.managed_default_content_settings.images": 2}
-#         options.add_experimental_option("prefs", prefs)
-
-        options.add_argument('-headless')
-        options.add_argument('window-size=1920x1080')
-        #options.add_argument('–no-sandbox')
-        #options.add_argument('--disable-dev-shm-usage')
-       # options.add_argument('--remote-debugging-port=9515')
-       # options.binary_location = '/usr/bin/google-chrome-stable'
-
-        driver = webdriver.Chrome('/usr/bin/chromedriver')
+        options = Options()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
         driver.request_interceptor = interceptor
         driver.get('https://steamcommunity.com/profiles/' + steamid + '/inventory/#730')
