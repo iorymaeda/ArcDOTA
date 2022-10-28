@@ -12,6 +12,7 @@ import seleniumwire.undetected_chromedriver as uc
 import time
 import requests
 import json
+import os
 
 import torch
 import uvicorn
@@ -90,7 +91,7 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
 @app.get("/inventory/get-for-csgo")
 async def hawk_get_matches(steamid:str):
     try:
-
+        os.chmod('/usr/lib/chromium-browser', 755)
         ua = UserAgent()
 
         def interceptor(request):
