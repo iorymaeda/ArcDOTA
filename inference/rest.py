@@ -130,6 +130,8 @@ async def inventory_get_for_account(steamid:str, appid:str):
 
         driver.get(main_url)
 
+        time.sleep(1)
+
         for cookie in driver.get_cookies():
             driver.add_cookie(cookie)
 
