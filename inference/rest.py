@@ -109,8 +109,8 @@ async def hawk_get_matches(steamid:str):
 
         options = Options()
         options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
+        #options.add_argument('--no-sandbox')
+        #options.add_argument('--disable-dev-shm-usage')
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
         driver.request_interceptor = interceptor
