@@ -130,12 +130,6 @@ async def inventory_get_for_account(steamid:str, appid:str):
 
         driver.get(main_url)
 
-        time.sleep(1)
-
-        totalItemsText = driver.find_element(By.ID, "inventory_link_" + appid).find_element(By.CLASS_NAME, "games_list_tab_number").text
-        totalItemsText = totalItemsText.replace(",", "")
-        totalItems = int(re.findall("\d+", totalItemsText)[0])
-
         for cookie in driver.get_cookies():
             driver.add_cookie(cookie)
 
@@ -150,21 +144,13 @@ async def inventory_get_for_account(steamid:str, appid:str):
         driver.request_interceptor = interceptor
 
         driver.get('view-source:https://steamcommunity.com/profiles/'+steamid+'/inventory/json/'+appid+'/2/?l=english&count=10000')
-        content = (driver.page_source).encode('utf-8')
+        content = driver.page_source
+        content = driver.find_element_by_tag_name('pre').text
         driver.close()
 
-        #totalItemsText.replace("(", "")
-        #totalItemsText.replace(")", "")
+        parsed_json = json.loads(content)
 
-
-        test = content[338:]
-        test = test[0:len(test)-78]
-
-        test = html.unescape(test)
-
-       # data = [json.loads(line) for line in test]
-
-        return test
+        return parsed_json
 
     except Exception as e:
         return JSONResponse(
