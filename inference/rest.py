@@ -139,10 +139,9 @@ async def inventory_get_for_account(steamid:str, appid:str):
 
             request.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
             request.headers['Accept-Language'] = 'en-US;q=0.8,en;q=0.7'
-            request.headers['Accept-Encoding'] = 'deflate, gzip;q=1.0, *;q=0.5'
             request.headers['Content-type'] = 'application/json'
             request.headers['Host'] = 'steamcommunity.com'
-            request.headers['Referer'] = 'main_url'
+            request.headers['Referer'] = main_url
 
         driver.request_interceptor = interceptor
 
