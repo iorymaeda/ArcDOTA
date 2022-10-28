@@ -4,9 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0865dee8-5183-4636-b00f-ead4ae46656d" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/inference/rest.py" beforeDir="false" afterPath="$PROJECT_DIR$/inference/rest.py" afterDir="false" />
-    </list>
+    <list default="true" id="0865dee8-5183-4636-b00f-ead4ae46656d" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -53,7 +51,7 @@
       <option name="presentableId" value="Default" />
       <updated>1665184070519</updated>
       <workItem from="1665308683843" duration="594000" />
-      <workItem from="1666983889907" duration="7275000" />
+      <workItem from="1666983889907" duration="7612000" />
     </task>
     <servers />
   </component>

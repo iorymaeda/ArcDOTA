@@ -219,7 +219,9 @@ async def hawk_get_matches(date:str):
         test = content[338:]
         test = test[0:len(test)-78]
 
-        return test
+        json = json.loads(test)
+
+        return json
 
     except Exception as e:
         return JSONResponse(
