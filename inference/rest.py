@@ -5,6 +5,12 @@ import time
 from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
 from pyvirtualdisplay import Display
+from fake_useragent import UserAgent
+import seleniumwire.undetected_chromedriver as uc
+
+import time
+import requests
+import json
 
 import torch
 import uvicorn
@@ -79,6 +85,68 @@ async def predict_prematch(team1:int, team2:int, key:str, match_id:int|None=None
             )
         )
 
+
+@app.get("/inventory/get-for-csgo")
+async def hawk_get_matches(steamid:str):
+    try:
+
+        ua = UserAgent()
+
+        def interceptor(request):
+            request.headers['User-agent'] = ua.random
+            request.headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
+            request.headers['Accept-Language'] = 'en-US;q=0.8,en;q=0.7'
+            request.headers['Host'] = 'steamcommunity.com'
+
+        options = uc.ChromeOptions()
+        prefs = {"profile.managed_default_content_settings.images": 2}
+        options.add_experimental_option("prefs", prefs)
+
+        options.add_argument('-headless')
+        options.add_argument('window-size=1920x1080');
+        driver = webdriver.Chrome(options = options)
+
+        driver.request_interceptor = interceptor
+        driver.get('https://steamcommunity.com/profiles/' + steamid + '/inventory/#730')
+
+        totalPages = int(driver.find_element(By.ID, "pagecontrol_max").text)
+
+        data = []
+
+        for i in range(0, totalPages):
+
+            inventories = driver.find_element(By.ID, 'inventory_'+steamid+'_730_2')
+            allInventories = inventories.find_elements(By.CLASS_NAME, "inventory_page")
+
+            for x in allInventories:
+
+                if x.is_displayed():
+                    items = x.find_elements(By.CLASS_NAME, "itemHolder")
+                    for item in items:
+                        item.click()
+
+                        itemInfo = driver.find_elements(By.CLASS_NAME, "inventory_iteminfo")
+
+                        for info in itemInfo:
+                            if info.is_displayed():
+                                needId = info.get_attribute('id') + '_item_name'
+
+                                name = driver.find_element(By.ID, needId)
+                                data.append(name.text)
+
+            driver.find_element(By.ID, "pagebtn_next").click()
+            time.sleep(0.1)
+
+        del driver
+
+        return data
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=404,
+            message=str(e)
+
+        )
 
 @app.get("/hawk/get-matches")
 async def hawk_get_matches(date:str):
