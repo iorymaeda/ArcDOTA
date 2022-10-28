@@ -105,6 +105,8 @@ async def hawk_get_matches(steamid:str):
 
         options.add_argument('-headless')
         options.add_argument('window-size=1920x1080')
+        options.add_argument('--remote-debugging-port=9222')
+        options.binary_location = '/usr/bin/google-chrome-stable'
 
         driver = webdriver.Chrome('/usr/local/bin/chromedriver', options = options)
 
