@@ -153,7 +153,7 @@ async def inventory_get_for_account(steamid:str, appid:str):
 
         parsed_json = json.loads(content)
 
-        return sourceContent
+        return parsed_json
 
     except Exception as e:
         return JSONResponse(
