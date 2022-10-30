@@ -1,12 +1,75 @@
-split:
-  # if > 1 then it is number of samples
-  # elif <= 1 then it is percent of train data
-  league:
-    val: 0
-    test: 0
-  public:
+public:
+  split:
+    # if > 1 then it is number of samples
+    # elif <= 1 then it is percent of train data
     val: 0.025
     test: 0.075
 
-batch_size:
-  league: 1024
+league:
+  batch_size: 256
+  label_smoothing: 0.05
+
+  trainer:  
+    grad_clip_norm: 1
+    grad_clip_value: 0
+    sample_weight: False
+    r_drop: 0
+    c_reg:
+      - r_window
+      - d_window
+      - r_window_featurs
+      - d_window_featurs
+    c_reg_a: 0.02
+    c_reg_e: 100
+    c_reg_detach: True
+    c_reg_distance: cos
+
+  shuffle: False
+  split:
+    # if > 1 then it is number of samples
+    # elif <= 1 then it is percent of train data
+    val: 500
+    test: 500
+
+  optimizer: AdamS
+  Adam:
+    lr: 1e-4
+    weight_decay: 0
+    amsgrad: False
+  AdamW:
+    lr: 1e-4
+    weight_decay: 1e-4
+    amsgrad: False
+  AdamS:
+    lr: 1e-4
+    weight_decay: 1e-3
+    amsgrad: False
+  AdamC:
+    lr: 1e-4
+    weight_decay: 0.001
+    amsgrad: False
+
+  SGD:
+    lr: 5e-4
+    weight_decay: 0.002
+    momentum: 0.9
+    nesterov: False
+  SGDS:
+    lr: 0.1
+    momentum: 0.9
+    weight_decay: 1e-5
+    nesterov: True
+  SGDC:
+    lr: 0.1
+    weight_decay: 0.0005
+    momentum: 0.9
+    nesterov: False
+
+  use_scheduler: False
+  scheduler:
+    init_lr: 1e-3
+    peak_lr: 5e-3
+    final_lr: 1e-4
+    final_lr_scale: 0.1
+    warmup_steps: 30
+    decay_steps: 50

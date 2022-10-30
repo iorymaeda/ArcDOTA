@@ -36,8 +36,10 @@ league:
       opponent: False
       result: categorical
     tabular: 
+      grid: False
       teams: True
-      players: False 
+      players: False
+      prize_pool: True
 
 
 

@@ -14,91 +14,100 @@ from .._typing.property import FEATURES
 
 class PrematchModel(ConfigBase, nn.Module):
     def __init__(self, teams_num, regression:bool=True, **kwargs):
-        super().__init__()
+        super(PrematchModel, self).__init__()
         # --------------------------------------------------------- #
         self.emb_storage = {}
         self.regression = regression
         self.features_config: dict = self._get_config('features')['league']
-        self.model_config: dict = self._get_config('models')['preamtch']
+        self.model_config: dict = self._get_config('models')['prematch']
 
         # --------------------------------------------------------- #
-        if self.features_config['features']['tabular']['teams']:
+        # Windows
+        self.windowGamesFeatureEncoder = blocks.WindowGamesFeatureEncoder()
+        self.windows_seq_encoder = blocks.WindowSeqEncoder()
+
+        output_dim = self.windows_seq_encoder.output_dim
+
+        # --------------------------------------------------------- #
+        # Tabular features
+        t_config = self.features_config['features']['tabular']
+        if t_config['teams']:
+            emb_dim = self.model_config['team_embedding']['embed_dim']
+            output_dim += emb_dim
             self.team_embedding = nn.Embedding(
                 num_embeddings=teams_num+1, 
-                embedding_dim=self.model_config['team_embedding']['embed_dim'],
+                embedding_dim=emb_dim,
             )
+        if t_config['players']:
+            raise NotImplementedError
 
-        # --------------------------------------------------------- #
-        self.windowedGamesFeatureEncoder = blocks.WindowedGamesFeatureEncoder()
+        if t_config['grid']:
+            output_dim += 7
 
-        # --------------------------------------------------------- #
-        # windows_seq_encoder
-        if self.model_config['windows_seq_encoder_type'] == 'transformer':
-            modules = [
-                blocks.TransformerEncoder(**self.model_config['windows_seq_encoder']['transformer'])
-                for _ in range(self.model_config['windows_seq_encoder']['transformer']['num_encoder_layers'])
-            ]
-
-            if self.model_config['windowedGamesFeatureEncoder']['embed_dim'] != self.model_config['windows_seq_encoder']['transformer']['embed_dim']:
-                modules = [nn.Linear(
-                    in_features=self.model_config['windowedGamesFeatureEncoder']['embed_dim'], 
-                    out_features=self.model_config['windows_seq_encoder']['transformer']['embed_dim'],
-                )] + modules
-            self.windows_seq_encoder = nn.ModuleList(modules)
-            windows_seq_encoder_output_dim = self.model_config['windows_seq_encoder']['transformer']['embed_dim']
-
-
-        elif self.model_config['windows_seq_encoder_type'] == 'GRU':
-            self.windows_seq_encoder = blocks.RNN(
-                RNN_type='GRU', input_size=self.model_config['windowedGamesFeatureEncoder']['embed_dim'], 
-                **self.model_config['windows_seq_encoder']['GRU'])
-
-            windows_seq_encoder_output_dim = self.model_config['windows_seq_encoder']['GRU']['embed_dim']
-            if self.model_config['windows_seq_encoder']['GRU']['bidirectional']:
-                windows_seq_encoder_output_dim *= 2
-
-        else: raise Exception
-        
+        if t_config['prize_pool']:
+            emb_dim = self.model_config['prize_pool_embedding']['embed_dim']
+            output_dim += emb_dim
+            self.prize_pool_embedding = nn.Embedding(
+                num_embeddings=8, 
+                embedding_dim=emb_dim,
+            )
         # --------------------------------------------------------- #
         # output head
-        if self.features_config['features']['tabular']['teams']:
-            windows_seq_encoder_output_dim += self.model_config['team_embedding']['embed_dim']
-
-        self.output_head = blocks.OutputHead(in_dim=windows_seq_encoder_output_dim, regression=regression)
-
+        self.output_head = blocks.OutputHead(in_dim=output_dim, regression=regression)
 
 
     def forward(self, inputs: dict):
         # --------------------------------------------------------- #
-        r_window, d_window = self.windowedGamesFeatureEncoder(inputs)
+        r_window, d_window = self.windowGamesFeatureEncoder(inputs)
         # |window| : (batch_size, seq_len, embed_dim)
+        self.emb_storage['r_window_featurs'] = r_window
+        self.emb_storage['d_window_featurs'] = d_window
 
         # --------------------------------------------------------- #
-        r_window = self.__forward_through_seq_encoder(
+        r_emb = self.windows_seq_encoder(
             window=r_window, 
             seq_len=inputs['r_window']['seq_len'],
             key_padding_mask=inputs['r_window']['padded_mask'])
-        # |window| : (batch_size, embed_dim)
-        d_window = self.__forward_through_seq_encoder(
+        # |emb| : (batch_size, embed_dim)
+        d_emb = self.windows_seq_encoder(
             window=d_window, 
             seq_len=inputs['d_window']['seq_len'],
             key_padding_mask=inputs['d_window']['padded_mask'])
-        # |window| : (batch_size, embed_dim)
-        self.emb_storage['r_window'] = r_window
-        self.emb_storage['d_window'] = d_window
+        # |emb| : (batch_size, embed_dim)
+        self.emb_storage['r_window'] = r_emb
+        self.emb_storage['d_window'] = d_emb
 
         # --------------------------------------------------------- #
+        if self.features_config['features']['tabular']['grid']:
+            r_emb = torch.cat([r_emb, inputs['grid']], dim=-1)
+            # |r_emb| : (batch_size, embed_dim+G)
+
+            d_emb = torch.cat([d_emb, inputs['grid']], dim=-1)
+            # |d_emb| : (batch_size, embed_dim+G)
+
         if self.features_config['features']['tabular']['teams']:
             team_r = self.team_embedding(inputs['teams']['radiant'])
-            r_window = torch.cat([r_window, team_r], dim=-1)
-            # |pooled| : (batch_size, embed_dim+team_emb_dim)
+            r_emb = torch.cat([r_emb, team_r], dim=-1)
+            # |r_emb| : (batch_size, embed_dim+T)
 
             team_d = self.team_embedding(inputs['teams']['dire'])
-            d_window = torch.cat([d_window, team_d], dim=-1)
-            # |pooled| : (batch_size, embed_dim+team_emb_dim)
+            d_emb = torch.cat([d_emb, team_d], dim=-1)
+            # |d_emb| : (batch_size, embed_dim+T)
+
+        if self.features_config['features']['tabular']['players']:
+            raise NotImplementedError
+
+        if self.features_config['features']['tabular']['prize_pool']:
+            p_pool = self.prize_pool_embedding(inputs['prize_pool'])
+
+            r_emb = torch.cat([r_emb, p_pool], dim=-1)
+            # |r_emb| : (batch_size, embed_dim+P)
+
+            d_emb = torch.cat([d_emb, p_pool], dim=-1)
+            # |r_emb| : (batch_size, embed_dim+P)
 
         # --------------------------------------------------------- #
-        output = self.output_head(r_window, d_window)
+        output = self.output_head(r_emb, d_emb)
         return output
 
 
@@ -122,63 +131,6 @@ class PrematchModel(ConfigBase, nn.Module):
         elif len(output.shape) == 1:
             # In fact, it's impossible
             return output.sigmoid()
-
-
-    def __forward_through_seq_encoder(self, window: torch.Tensor, key_padding_mask:torch.Tensor=None, seq_len:torch.Tensor=None) -> torch.FloatTensor:
-        if self.model_config['windows_seq_encoder_type'] == 'transformer':
-            self.windows_seq_encoder: nn.ModuleList
-
-            skip_connection = None
-            for idx, layer in enumerate(self.windows_seq_encoder):
-                if isinstance(layer, nn.Linear):
-                    window = layer(window)
-
-                elif isinstance(layer, blocks.TransformerEncoder):
-                    if (idx+1)%self.model_config['transformer']['skip_connection'] == 0:
-                        window = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
-                        window = skip_connection = window + skip_connection
-
-                    elif idx == 0:
-                        window = skip_connection = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
-
-                    else:
-                        # However a ``` `True` value indicates that the corresponding key value will be IGNORED ```
-                        # for some reasons irl it's the other way around
-                        window = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
-                else: raise Exception
-
-            window: torch.Tensor 
-            # |window| : (batch_size, seq_len, embed_dim
-            pooled_w = self.__global_avg_pooling(
-                window=window,
-                seq_len=seq_len,
-                key_padding_mask=key_padding_mask)
-            # |pooled| : (batch_size, embed_dim)
-            return pooled_w
-
-        elif self.model_config['windows_seq_encoder_type'].upper() in ['GRU', 'LSTM']:
-            self.windows_seq_encoder: nn.Module
-
-            pooled_w = self.windows_seq_encoder(window)
-            # |pooled| : (batch_size, embed_dim)
-            return pooled_w
-
-
-    def __global_avg_pooling(self, window: torch.Tensor, seq_len: torch.Tensor, key_padding_mask: torch.Tensor)  -> torch.FloatTensor:
-        # multiply window by mask - zeros all padded tokens
-        pooled = torch.mul(window, key_padding_mask.unsqueeze(2))
-        # |pooled| : (batch_size, seq_len, d_model)
-
-        # sum all elements by seq_len dim
-        pooled = pooled.sum(dim=1)
-        # |pooled| : (batch_size, d_model)
-
-        # divide samples by by its seq_len, so we will get mean values by each sample
-        pooled = pooled / seq_len.unsqueeze(1)
-        # |pooled| : (batch_size, d_model)
-
-        return pooled
-
 
     def summary(self):
         torchsummary.summary(self)

@@ -1,53 +1,129 @@
 # This config stores hyperparametrs configuration
 
-preamtch:
-  windows_seq_encoder_type: GRU
+prematch:
+  windows_seq_encoder_type: [GRU]
   compare_encoder_type: linear
 
   team_embedding:
     embed_dim: 4
 
-  windowedGamesFeatureEncoder:
+  prize_pool_embedding:
+    embed_dim: 4
+
+  windowGamesFeatureEncoder:
     statsEncoder:
       num_layers: 2
-      ff_dim: 24
-      norm: layer
+      ff_dim: 32
+      norm: batch
+      prenorm: False
+      dropout: 0.2
+      wdropoout: 0.1
+      bdropoout: 0.1
+      bias: True
     embed_dim: 32
-    dropout: 0.15
-  
+    pos_encoding: False
+    seq_permutation:
+      shuffles_num: 10
+      max_step: 5
+      p: 0
+    seq_masking:
+      p: 0
+
   windows_seq_encoder:
     transformer:
       embed_dim: 32
       num_heads: 2
-      ff_dim: 64
-      dropout: 0.15
-      num_encoder_layers: 4
+      ff_dim: 32
+      num_encoder_layers: 2
       skip_connection: 4
-
-    GRU:
-      embed_dim: 32
       dropout: 0.15
-      num_layers: 4
+      wdropoout: 0.
+      bdropoout: 0.
+      layer_norm: post
+      
+    GRU:
+      embed_dim: 24
+      num_layers: 2
+      dropout: 0
+      dropouti: 0.05
+      dropouth: 0.05
+      wdrop: 0.3
+      norm: none
+      zoneout_prob: 0
+      zoneout_layernorm: False
+      activation: linear
       attention: False
       bidirectional: False
       output_hidden: False
+      seq_permutation:
+        shuffles_num: 10
+        max_step: 5
+        p: 0
+      seq_masking:
+        p: 0
+
+    IRNN:
+      embed_dim: 32
+      num_layers: 2
+      norm: none
+      dropout: 0.2
+      dropouti: 0
+      dropouth: 0
+      rec_dropout: 0.2
+      activation: linear
+      rec_activation: gelu
+      rec_norm: False
+      layernorm: False
+      hiden_after_norm: False
+      prenorm: False
+
+    LSTM:
+      embed_dim: 24
+      num_layers: 2
+      dropout: 0
+      dropouti: 0.05
+      dropouth: 0.05
+      wdrop: 0.2
+      zoneout_prob: 0
+      bidirectional: False
+
+    LSTMN:
+      embed_dim: 24
+      num_layers: 2
+      dropout: 0
+      dropouti: 0.05
+      dropouth: 0.05
+      r_dropout: 0
+      zoneout_prob: 0
+      l_norm: False
+      bidirectional: False
 
   compare_encoder: 
     transformer:
       embed_dim: 16
       num_heads: 2
       ff_dim: 24
-      dropout: 0.15
       num_encoder_layers: 2
+      dropout: 0.15
+      wdropoout: 0.
+      bdropoout: 0.
+      layer_norm: post
 
     linear: 
-      in_fnn_dims: [32, 24]
+      in_fnn_dims: [32, 16]
       compare_fnn_dims: [32, 16]
       out_dim: 2
       dropout: 0.15
-      bias: False
+      wdropoout: 0
+      bdropoout: 0
+      norm: batch
+      prenorm: False
+      in_fnn_bias: True
+      compare_fnn_bias: False
 
     subtract:
       in_fnn_dims: [32, 24]
       compare_fnn_dims: [32, 16]
       dropout: 0.15
+      in_fnn_bias: True
+      compare_fnn_bias: False

@@ -34,6 +34,10 @@ class _league_scoreboard_player(D):
     position_y: float
     net_worth: int
 
+class _abilities(D):
+    ability_id: int
+    ability_level: int
+
 class _league_team_scoreboards(D):
     score: int
     tower_state: int
@@ -41,7 +45,7 @@ class _league_team_scoreboards(D):
     picks: List[ dict[Literal['hero_id'], int] ]
     bans: List[ dict[Literal['hero_id'], int] ]
     players: List[_league_scoreboard_player]
-    abilities: list[ dict[Literal['ability_id'], int], dict[Literal['ability_level'], int] ]
+    abilities: List[_abilities]
 
 class _league_scorebord(D):
     duration: float
@@ -68,12 +72,12 @@ class _league_game_base(D):
     series_type: int
     scorebord: _league_scorebord
 
-class _league_game(_league_game_base, total=False):
+class LeagueGame(_league_game_base, total=False):
     radiant_team: _league_team
     dire_team: _league_team
 
 class _GetLiveLeagueGames_result(D):
-    games: List[_league_game]
+    games: List[LeagueGame]
     status: int
 
 class GetLiveLeagueGames(D):

@@ -1,19 +1,25 @@
-from typing import List, Literal
+from typing import List, Literal, AnyStr
 from typing import TypedDict as D
 
 match_id = int
 leaguetiers = Literal["professional", "premium", "amateur", "excluded"]
+dota_npc_heroes = AnyStr
 # "amateur", "excluded" is trash:
 #
-# "leagueid": 12582,
-# "ticket": null,
-# "banner": null,
-# "tier": "excluded",
-# "name": "Кубанский союз молодёжи"
+# >>> "leagueid": 12582,
+# >>> "ticket": null,
+# >>> "banner": null,
+# >>> "tier": "excluded",
+# >>> "name": "Кубанский союз молодёжи"
+
+damage_targets = dict[Literal['null'] | str, dict[dota_npc_heroes, int]]
 
 class Player(D):
     """Opendota player model"""
     player_slot: int
+    hero_id: int
+    rank_tier: int
+
     total_gold: int
     total_xp: int
     kills: int
@@ -24,6 +30,12 @@ class Player(D):
     roshan_kills: int
     tower_damage: int
     hero_damage: int
+    damage_targets: damage_targets
+
+    obs_placed: int
+    sen_placed: int
+    camps_stacked: int
+    creeps_stacked: int
 
 class Objectives(list):
     pass
@@ -33,8 +45,14 @@ class Players(list):
 
 class Match(D):
     """Opendota match"""
+    match_id: int
+    
     objectives: list[dict]
     players: list[Player]
+    
+    leagueid: int
+    series_type: int
+    series_id: int
 
 class TeamMatch(D):
     match_id: match_id

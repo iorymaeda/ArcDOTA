@@ -10,11 +10,17 @@ class SteamError(Steam):
     def __str__(self):
         return f"Failed to retrieve data from the Steam API\nStatus code: {self.status}\nData: {self.data}"
 
-
 class LiveGameNotFound(Steam):
     def __str__(self):
         return "Live game not found"
 
+class LeagueGamesNotFound(Steam):
+    def __str__(self):
+        return "League games not found"
+
+class LeagueGameHasNoDrafts(Steam):
+    def __str__(self):
+        return "League game has no drafts"
 
 class PrizePoolNotFound(Steam):
     def __init__(self, status, leagueid):

@@ -28,7 +28,7 @@ class LeagueDataset(ConfigBase, D):
         self.evaluate_tokenize = evaluate_tokenize
 
 
-        self.cache = {}
+        self.cache = []
 
         self.config = None
         self.config = self._get_config('features')
@@ -42,15 +42,11 @@ class LeagueDataset(ConfigBase, D):
 
     def build(self) -> 'LeagueDataset':
         if not self.cache:
-            cached_num = 0
             for index in tqdm.tqdm(self.indexes):
                 sample = self.generate_sample(index)
-
                 if sample and (sample['r_window']['seq_len'] >= self.config['league']['window_min_size'] and 
                     sample['d_window']['seq_len'] >= self.config['league']['window_min_size']):
-
-                    self.cache[cached_num] = sample
-                    cached_num+=1
+                    self.cache.append(sample)
 
         self.__generated = True
         return self

@@ -1,5 +1,3 @@
-"""Base classes for inheritance"""
-
 import json
 import pathlib
 
@@ -7,23 +5,21 @@ import pydantic
 import numpy as np
 import pandas as pd
 
-from . import _typing
-from . import exceptions
+from . import _typing, exceptions
 from .base import DotaconstantsBase
 from .development import suppress
 
 
 class OpendotaParser(DotaconstantsBase):
-    """Parse opendota match"""
-    RADIANT_SIDE = [0, 1, 2, 3, 4]
-    DIRE_SIDE = [128, 129, 130, 131, 132]
-    
+    """Parse opendota match to property standart"""
+
     def __init__(self, tokenizer:str|dict=None):
         self.patch: dict
         self.region: dict
         self.hero_json: dict
         self.npc_to_id: dict
         self.id_to_hero: dict
+        self.id_to_npc: dict
         self.lobby_type: dict
         self.game_mode: dict
         self.leagues: dict
@@ -75,8 +71,7 @@ class OpendotaParser(DotaconstantsBase):
             l['leagueid']: {
                 'tier': l['tier'],
                 'name': l['name']
-            }
-            for l in leagues
+            } for l in leagues
         }
 
     def _load_prize_pools(self, path: str):
@@ -97,15 +92,8 @@ class OpendotaParser(DotaconstantsBase):
 
     def _load_hero_names(self, path):
         self.hero_json = self._load_json(path)
-
-        self.npc_to_id = {
-            npc: self.hero_json[npc]['id'] 
-            for npc in self.hero_json
-        }
-        self.id_to_hero = {
-            self.hero_json[npc]['id']: self.hero_json[npc]['localized_name'] 
-            for npc in self.hero_json
-        }
+        self.npc_to_id, self.id_to_hero = self._load_heroes()
+        self.id_to_npc = {self.hero_json[npc]['id']: npc for npc in self.hero_json}
 
     def _load_tokenizer(self, path):
         raise NotImplementedError
@@ -115,9 +103,9 @@ class OpendotaParser(DotaconstantsBase):
         Rgold_hero = {}
         Dgold_hero = {}
         for player in players:
-            if player['player_slot'] in [0, 1, 2, 3, 4]:
+            if player['player_slot'] in self.RADIANT_SIDE:
                 Rgold_hero[player['hero_id']] = player['total_gold']
-            elif player['player_slot'] in [128, 129, 130, 131, 132]:
+            elif player['player_slot'] in self.DIRE_SIDE:
                 Dgold_hero[player['hero_id']] = player['total_gold']
 
         glist = {k: v for k, v in sorted(Rgold_hero.items(), key=lambda item: item[1], reverse=True)}
@@ -274,6 +262,8 @@ class OpendotaParser(DotaconstantsBase):
         return _typing.property.Match(
             league=self.get_league(match) if ('leagueid' in match and match['leagueid'] > 0) else None,
             isleague=True if ('leagueid' in match and match['leagueid'] > 0) else False,
+            series_type=match['series_type'],
+            series_id=match['series_id'],
 
             match_id=match['match_id'],
             start_time=match['start_time'],
@@ -338,15 +328,16 @@ class OpendotaParser(DotaconstantsBase):
 
     def get_league(self, match: _typing.opendota.Match) -> _typing.property.League | None:
         try:
-            if (match['leagueid'] not in self.leagues and 
-                match['leagueid'] not in self.prize_pools): 
-                raise exceptions.property.LeaguesJSONsNotFound
+            leagueid = match['leagueid'] 
+            if (leagueid not in self.leagues and 
+                leagueid not in self.prize_pools): 
+                raise exceptions.property.LeaguesJSONsNotFound(leagueid)
 
-            elif match['leagueid'] not in self.leagues:
-                raise exceptions.property.LeagueIDNotFound
+            elif leagueid not in self.leagues:
+                raise exceptions.property.LeagueIDNotFound(leagueid)
             
-            elif match['leagueid'] not in self.prize_pools:
-                raise exceptions.property.LeaguePPNotFound
+            elif leagueid not in self.prize_pools:
+                raise exceptions.property.LeaguePPNotFound(leagueid)
 
             return _typing.property.League(
                 id=match['leagueid'],
@@ -363,21 +354,39 @@ class OpendotaParser(DotaconstantsBase):
         radiant_team_stats = _typing.property.Stats()
         dire_team_stats = _typing.property.Stats()
 
-        player: _typing.opendota.Player
+        
+        radiant_npc = [ self.id_to_npc[ p['hero_id'] ] for p in match['players'] if p['player_slot'] in self.RADIANT_SIDE]
+        dire_npc = [ self.id_to_npc[ p['hero_id'] ] for p in match['players'] if p['player_slot'] in self.DIRE_SIDE]
+
         for player in match['players']:
             player_stats = _typing.property.Stats()
             if player["player_slot"] in self.RADIANT_SIDE:
                 obj = radiant_team_stats
-                
+                oppositing_npc = dire_npc
 
             elif player["player_slot"] in self.DIRE_SIDE:
                 obj = dire_team_stats
+                oppositing_npc = radiant_npc
 
             else: continue
-
-            stuns = player['benchmarks']['stuns_per_min']['raw'] * match['duration'] / 60
-            heal = player['benchmarks']['hero_healing_per_min']['raw'] * match['duration'] / 60
             
+            # --------------------------------------------- #
+            # Get attack damage
+            if 'null' in player['damage_targets']:
+                attack_targets = player['damage_targets']['null']
+                attack_damage = sum([attack_targets[target] for target in attack_targets if target in oppositing_npc])
+            else:
+                attack_damage = 0
+
+            # --------------------------------------------- #
+            # Get spell damage
+            spell_damage = 0
+            for spell in player['damage_targets']:
+                if spell == 'null': continue
+                for spell_target in player['damage_targets'][spell]:
+                    if spell_target in oppositing_npc:
+                        spell_damage += player['damage_targets'][spell][spell_target]
+
             # --------------------------------------------- #
             player_stats.gold = player['total_gold']
             player_stats.xp = player['total_xp']
@@ -385,7 +394,7 @@ class OpendotaParser(DotaconstantsBase):
             player_stats.deaths = player['deaths']
             player_stats.assists = player['assists']
             player_stats.last_hits = player['lh_t'][-1]
-
+            
             try:
                 player_stats.last_hits_10 = player['lh_t'][10]
             except IndexError:
@@ -403,9 +412,16 @@ class OpendotaParser(DotaconstantsBase):
 
             player_stats.roshan_kills = player['roshan_kills']
             player_stats.tower_damage = player['tower_damage']
-            player_stats.hero_damage = player['hero_damage']
-            player_stats.stuns = stuns
-            player_stats.heal = heal
+            player_stats.attack_damage = attack_damage
+            player_stats.spell_damage = spell_damage
+            player_stats.stuns = player['stuns']
+            player_stats.heal = player['hero_healing']
+
+            player_stats.obs_placed = player['obs_placed']
+            player_stats.sen_placed = player['sen_placed']
+            player_stats.camps_stacked = player['camps_stacked']
+            player_stats.creeps_stacked = player['creeps_stacked']
+
             # --------------------------------------------- #
             obj.gold += player['total_gold']
             obj.xp += player['total_xp']
@@ -431,9 +447,16 @@ class OpendotaParser(DotaconstantsBase):
 
             obj.roshan_kills += player['roshan_kills']
             obj.tower_damage += player['tower_damage']
-            obj.hero_damage += player['hero_damage']
-            obj.stuns += stuns
-            obj.heal += heal
+            obj.attack_damage += attack_damage
+            obj.spell_damage += spell_damage
+            obj.stuns += player['stuns']
+            obj.heal += player['hero_healing']
+
+            obj.obs_placed += player['obs_placed']
+            obj.sen_placed += player['sen_placed']
+            obj.camps_stacked += player['camps_stacked']
+            obj.creeps_stacked += player['creeps_stacked']
+
             # --------------------------------------------- #
 
             player_overview = _typing.property.PlayerOverview(
@@ -457,6 +480,10 @@ class OpendotaParser(DotaconstantsBase):
 
 class PropertyParser(DotaconstantsBase):
     """Property matches to `pd.DataFrame` parser"""
+    # def __init__(self):
+        # leagues = pd.read_csv('scarpe/output/leagues_liquid.csv', sep='\t').drop_duplicates('league_id').set_index('league_id')
+        # matches = pd.read_csv('scarpe/output/matches_liquid.csv', sep='\t').drop_duplicates('match_id').set_index('match_id')
+
     def __call__(self, matches: list[_typing.property.Match | dict] | _typing.property.Match | dict) -> pd.DataFrame:
         """Parse property matches to `pd.DataFrame`"""
         if type(matches) != list:
@@ -464,6 +491,8 @@ class PropertyParser(DotaconstantsBase):
 
         if isinstance(matches[0], _typing.property.Match):
             matches = [m.dict() for m in matches]
+
+        matches: list[dict]
 
         new_rows = []
         df = pd.DataFrame(matches)
@@ -546,5 +575,3 @@ class PropertyParser(DotaconstantsBase):
             axis=1
         ).sort_values(by='start_time').drop_duplicates('match_id')
         return df
-
-

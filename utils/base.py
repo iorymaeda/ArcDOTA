@@ -1,3 +1,5 @@
+"""Base classes for inheritance"""
+
 import yaml
 import copy
 import json
@@ -55,12 +57,12 @@ class DotaconstantsBase(PathBase):
 
     def _load_heroes(self) -> tuple[dict[str, int], dict[int, str]]:
         path = self._get_constants_path()
-        path = path / "build/heroes.json"
+        path = path / "build/hero_names.json"
 
         heroes = self._load_json(path)
 
-        npc_to_id = {heroes[hero_id]['name']: int(hero_id) for hero_id in heroes}
-        id_to_hero = {int(hero_id): heroes[hero_id]['localized_name'] for hero_id in heroes}
+        npc_to_id = {npc: heroes[npc]['id'] for npc in heroes}
+        id_to_hero = {heroes[npc]['id']: heroes[npc]['localized_name'] for npc in heroes}
         return npc_to_id, id_to_hero
 
         

@@ -11,7 +11,26 @@ from .base import ConfigBase, SaveLoadBase
 METHODS = Literal['minmax', 'minmax2', 'standart', 'box-cox', 'yeo-johnson']
 MODES = Literal['teams', 'players', 'both']
 
-
+def vectorize_prize_pool(m: int) -> int:
+    if m < 25_000:
+        return 0
+    elif 25_000 <= m < 50_000:
+        return 1
+    elif 50_000 <= m < 70_000:
+        return 2
+    elif 70_000 <= m < 100_000:
+        return 3
+    elif 100_000 <= m < 500_000:
+        return 4
+    elif 500_000 <= m < 1_000_000:
+        return 5
+    elif 1_000_000 <= m < 10_000_000:
+        return 6
+    elif 10_000_000 <= m:
+        return 7
+    else:
+        raise Exception
+        
 class DotaScaler(ConfigBase, SaveLoadBase):
     """This is scaler is just for DOTA, with different modes: 
     `players`/`teams` for scaling players or teams features
@@ -24,9 +43,6 @@ class DotaScaler(ConfigBase, SaveLoadBase):
     """
 
     def __init__(self, features:list=None, path:str=None):
-        if path is None and features is None:
-            raise Exception('Provide at least one argument')
-
         if path is not None:
             self._load(path)
 
@@ -39,7 +55,8 @@ class DotaScaler(ConfigBase, SaveLoadBase):
             }
             self.__fitted_p = False
             self.__fitted_t = False
-            
+        else:
+            raise Exception('Provide at least one argument')
 
     def save(self, path: str):
         self._save(path)
@@ -120,9 +137,9 @@ class DotaScaler(ConfigBase, SaveLoadBase):
         //TODO: write about standart transform
         """
         # ------------------------------ #
-        assert method in ['minmax', 'minmax2', 'standart', 'box-cox', 'yeo-johnson'], 'Normalization type is not correct'
-        assert mode in ['players', 'teams', 'both']
-        assert type(X) is pd.DataFrame
+        assert method in ['minmax', 'minmax2', 'standart', 'box-cox', 'yeo-johnson'], 'Method is not correct'
+        assert mode in ['players', 'teams', 'both'], 'Mode is not correct'
+        assert type(X) is pd.DataFrame, 'X must be pandas `DataFrame`'
 
         # ------------------------------ #
         X = X.copy()

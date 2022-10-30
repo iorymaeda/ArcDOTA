@@ -26,7 +26,8 @@ class _match_team(D):
 class Match(D):
     """Output by wrapper"""
     id: hawk_match_id
-    match_id: dota_match_id | None
+    match_id: list[dota_match_id]
+    championship_name: str | None
     is_radiant_won: bool | None
     radiant: _match_team
     dire: _match_team

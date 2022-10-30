@@ -82,13 +82,9 @@ class TSCollector(ConfigBase):
 
                         case _:
                             raise Exception(feature)
-                        
-            
             return output
 
         else: raise NotImplementedError
-        
-
 
     def collect_windows(
         self, games: pd.DataFrame, anchor: pd.DataFrame,
@@ -112,31 +108,42 @@ class TSCollector(ConfigBase):
             games=games, team_id=d_team_id, players=d_players,
             mask_type=mask_type, tokenize=tokenize
         )
+        if 'sample_weight' in anchor:
+            output['sample_weight'] = anchor['sample_weight'].values.astype('float32')[0]
 
         match self.y_output:
             case 'binary':
                 output['y'] = anchor['radiant_win'].values.astype('float32')
+
             case 'crossentropy':
                 output['y'] = anchor['radiant_win'].values.astype('int64')[0]
-        
+
         if self.teams_reg_output:
             output['y_r_stats'] = anchor[[f"r_{f}" for f in _typing.property.FEATURES]].values.astype('float32')
             output['y_d_stats'] = anchor[[f"d_{f}" for f in _typing.property.FEATURES]].values.astype('float32')
 
         tabular_features = self.config['league']['features']['tabular']
         for feature in tabular_features:
-            if tabular_features[feature]:
-                match feature:
-                    case 'teams':
-                        output['teams'] = {
-                            'radiant': self.tokenizer.tokenize(r_team_id, teams=True) if tokenize else r_team_id,
-                            'dire': self.tokenizer.tokenize(d_team_id, teams=True) if tokenize else d_team_id,
-                        }
-                    case 'players':
-                        output['players'] = {
-                            'radiant': [self.tokenizer.tokenize(player, players=True) for player in r_players] if tokenize else r_players,
-                            'dire': [self.tokenizer.tokenize(player, players=True) for player in d_players] if tokenize else d_players,
-                        }
+            if not tabular_features[feature]: continue
+            match feature:
+                case 'grid':
+                    output['grid'] = anchor[['is_dpc', 'is_final', 'is_semi_final', 'is_quarter_final', 'is_playoff', 'is_group_stage', 'is_elimination']].values.astype('float32')[0]
+ 
+                case 'teams':
+                    output['teams'] = {
+                        'radiant': self.tokenizer.tokenize(r_team_id, teams=True) if tokenize else r_team_id,
+                        'dire': self.tokenizer.tokenize(d_team_id, teams=True) if tokenize else d_team_id,
+                    }
+                case 'players':
+                    output['players'] = {
+                        'radiant': [self.tokenizer.tokenize(player, players=True) for player in r_players] if tokenize else r_players,
+                        'dire': [self.tokenizer.tokenize(player, players=True) for player in d_players] if tokenize else d_players,
+                    }
+                case 'prize_pool':
+                    output['prize_pool'] = anchor['league_prize_pool'].values.astype('int64')[0]
+                case _:
+                    raise Exception
+
         return output
 
 

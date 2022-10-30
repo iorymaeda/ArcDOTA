@@ -1,258 +1,51 @@
 import math
-from typing import Literal
+import time
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
+from .modules import LayerNorm, TransformerEncoder, Callable, RNN, TransformerEncoder, SparseConnectedLayer, SeqMasking, SeqPermutation
 from ..base import ConfigBase
 from .._typing.property import FEATURES
 
 
 # ----------------------------------------------------------------------------------------------- #
-# Stuff
-class SwiGLU(nn.Module):
-    """https://arxiv.org/abs/2002.05202"""
-    def forward(self, x:torch.Tensor):
-        # |x| : (..., Any)
-        x, gate = x.chunk(2, dim=-1)
-        return F.silu(gate) * x
-        # |x| : (..., Any//2)
+# Initialization
+def reset_parameters(self) -> None:
+    # Setting a=sqrt(5) in kaiming_uniform is the same as initializing with
+    # uniform(-1/sqrt(in_features), 1/sqrt(in_features)). For details, see
+    # https://github.com/pytorch/pytorch/issues/57109
+    nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+    if self.bias is not None:
+        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
+        bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+        nn.init.uniform_(self.bias, -bound, bound)
 
-class LayerNorm(nn.Module):
-    """LayerNorm without bias"""
-    def __init__(self, dim):
-        super().__init__()
-        self.gamma = nn.Parameter(torch.ones(dim))
-        self.register_buffer("beta", torch.zeros(dim))
+def set_init(func):
+    nn.Linear.reset_parameters = func
+    SparseConnectedLayer.reset_parameters = func
 
-    def forward(self, x:torch.Tensor):
-        return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)
+set_init(reset_parameters)
 
 # ----------------------------------------------------------------------------------------------- #
-# RNN
-class RNNAttention(nn.Module):
-    """Self-attention for modded RNN
-
-    source: https://github.com/gucci-j/imdb-classification-gru/blob/master/src/model_with_self_attention.py
-    """
-    def __init__(self, query_dim):
-        # assume: query_dim = key/value_dim
-        super(RNNAttention, self).__init__()
-        self.scale = 1. / math.sqrt(query_dim)
-
-    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor):
-        # query == hidden: (batch_size, hidden_dim)
-        # key/value == gru_output: (batch_size, sentence_length, hidden_dim)
-        query = query.unsqueeze(1) # (batch_size, 1, hidden_dim)
-        key = key.transpose(1, 2) # (batch_size, hidden_dim, sentence_length)
-
-        # bmm: batch matrix-matrix multiplication
-        attention_weight = torch.bmm(query, key) # (batch_size, 1, sentence_length)
-        attention_weight = F.softmax(attention_weight.mul_(self.scale), dim=2) # normalize sentence_length's dimension
-        attention_output = torch.bmm(attention_weight, value) # (batch_size, 1, hidden_dim)
-
-        # (batch_size, hidden_dim)
-        return attention_output.squeeze(1), attention_weight.squeeze(1)
-
-
-class RNN(nn.Module):
-    RNNs = {'GRU': nn.GRU, 'LSTM': nn.LSTM}
-
-    def __init__(
-        self, input_size:int, embed_dim:int, 
-        num_layers:int, dropout: float,
-        attention:bool, bidirectional=False,
-        RNN_type:Literal['GRU', 'LSTM']='GRU',
-        output_hidden:bool=True, **kwargs):
-
-        super(RNN, self).__init__()
-        RNN_type = RNN_type.upper()
-
-        if  RNN_type == 'LSTM': raise NotImplementedError
-
-        if not output_hidden and attention: raise Exception("We outputs only `hidden` while use attention, but `output_hidden==False`")
-
-        self.output_hidden = output_hidden
-        self.bidirectional = bidirectional
-        self.attention = RNNAttention(2*embed_dim if bidirectional else embed_dim) if attention else False
-        self.rnn = self.RNNs[RNN_type](
-            input_size=input_size , hidden_size=embed_dim, 
-            num_layers=num_layers, bidirectional=bidirectional, 
-            dropout=dropout, batch_first=True
-        )
-        
-    def forward(self, x: torch.Tensor):
-        output, hidden = self.rnn(x)
-        output: torch.Tensor # (batch_size, sentence_length, embed_dim (*2 if bidirectional)) 
-        hidden: torch.Tensor # (num_layers (*2 if bidirectional), batch_size, embed_dim)
-        ## ordered: [f_layer_0, b_layer_0, ...f_layer_n, b_layer n]
-
-        # concat the final output of forward direction and backward direction
-        if self.bidirectional:
-            hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
-            # | hidden | : (batch_size, embed_dim * 2)
-        else:
-            hidden = hidden[-1,:,:]
-            # | hidden | : (batch_size, embed_dim)
-
-        if self.attention is not False:
-            rescaled_hidden, attention_weight = self.attention(query=hidden, key=output, value=output)
-            return rescaled_hidden
-        else:
-            return hidden if self.output_hidden else output[:,-1,:]
-
-# ----------------------------------------------------------------------------------------------- #
-# Transformer stuff
-class PositionWiseFeedForwardNetwork(nn.Module):
-    def __init__(self, embed_dim, ff_dim, dropout):
-        super(PositionWiseFeedForwardNetwork, self).__init__()
-        assert ff_dim%2 == 0
-
-        self.linear1 = nn.Linear(embed_dim, ff_dim, bias=False)
-        self.linear2 = nn.Linear(ff_dim, embed_dim, bias=False)
-        self.dropout = nn.Dropout(dropout)
-        self.activation = nn.GELU()
-
-        nn.init.normal_(self.linear1.weight, std=0.02)
-        nn.init.normal_(self.linear2.weight, std=0.02)
-
-    def forward(self, inputs):
-        # |inputs| : (batch_size, seq_len, d_model)
-
-        outputs = self.activation(self.linear1(inputs))
-        outputs = self.dropout(outputs)
-        # |outputs| : (batch_size, seq_len, d_ff)
-        
-        outputs = self.linear2(outputs)
-        # |outputs| : (batch_size, seq_len, d_model)
-
-        return outputs
-
-
-class AttentionBase(nn.Module):
-    def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.15, **kwargs):
-        super(AttentionBase, self).__init__()
-        
-        self.layernorm1 = nn.LayerNorm(embed_dim)
-        self.layernorm2 = nn.LayerNorm(embed_dim)
-        
-        self.attn = nn.MultiheadAttention(
-            embed_dim=embed_dim,
-            num_heads=num_heads,
-            dropout=dropout,
-            batch_first=True,
-            bias=True,
-        )
-        self.ffn = PositionWiseFeedForwardNetwork(
-            embed_dim=embed_dim,
-            ff_dim=ff_dim,
-            dropout=dropout,
-        )
-
-        # TODO
-        self.config = {
-            # pre | pre
-            'layer_norm': 'post' 
-        }
-
-
-class CrossAttentionEncoder(AttentionBase):
-    def forward(self, x1, x2, key_padding_mask=None, attn_mask=None):
-        if self.config['layer_norm'] == 'pre':
-            # ---------------------- #
-            x1_ = self.layernorm1(x1)
-            x2_ = self.layernorm1(x2)
-            
-            x1_attn_output, x1_attn_weights = self.attn(
-                query=x1_, key=x2_, value=x2_, 
-                key_padding_mask=key_padding_mask, attn_mask=attn_mask
-            )
-            x2_attn_output, x2_attn_weights = self.attn(
-                query=x2_, key=x1_, value=x1_, 
-                key_padding_mask=key_padding_mask, attn_mask=attn_mask
-            )
-            
-            x1 = x1 + x1_attn_output
-            x2 = x2 + x2_attn_output
-            
-            # ---------------------- #
-            x1_ = self.layernorm2(x1)
-            x2_ = self.layernorm2(x2)
-            
-            x1_fnn_output = self.ffn(x1_)
-            x2_fnn_output = self.ffn(x2_)
-            
-            x1 = x1 + x1_fnn_output
-            x2 = x2 + x2_fnn_output
-            
-            return x1, x2
-        
-        elif self.config['layer_norm'] == 'post':
-            x1_attn_output, x1_attn_weights = self.attn(
-                query=x1, key=x2, value=x2, 
-                key_padding_mask=key_padding_mask, attn_mask=attn_mask
-            )
-            x2_attn_output, x2_attn_weights = self.attn(
-                query=x2, key=x1, value=x1, 
-                key_padding_mask=key_padding_mask, attn_mask=attn_mask
-            )
-            
-            x1 = self.layernorm1(x1 + x1_attn_output)
-            x2 = self.layernorm1(x2 + x2_attn_output)
-            
-            x1 = self.layernorm2(x1 + self.ffn(x1))
-            x2 = self.layernorm2(x2 + self.ffn(x2))
-            
-            return x1, x2
-        
-        else: raise Exception
-
-
-class TransformerEncoder(AttentionBase):
-    def forward(self, inputs, key_padding_mask=None, attn_mask=None):
-        if self.config['layer_norm'] == 'pre':
-            inputs_ = self.layernorm1(inputs)
-            
-            attn_output, attn_weights = self.attn(
-                query=inputs_, key=inputs_, value=inputs_, 
-                key_padding_mask=key_padding_mask, attn_mask=attn_mask
-            )
-
-            x = inputs + attn_output
-            x = x + self.ffn(self.layernorm2(x))
-            return x
-        
-        elif self.config['layer_norm'] == 'post':
-            attn_output, attn_weights = self.attn(
-                query=inputs, key=inputs, value=inputs, 
-                key_padding_mask=key_padding_mask, attn_mask=attn_mask
-            )
-
-            x = self.layernorm1(inputs + attn_output)
-            x = self.layernorm2(x + self.ffn(x))
-            return x
-        
-        else: raise Exception
-
-# ----------------------------------------------------------------------------------------------- #
-# Feature exctrators || Prematch
+# Prematch blocks
 class StatsEncoder(nn.Module):
-    def __init__(self, in_dim, ff_dim, out_dim, num_layers, dropout, norm='layer'):
+    def __init__(self, in_dim:int, ff_dim:int, out_dim:int, bias: bool, num_layers:int, dropout:float, wdropoout:float, bdropoout:float, prenorm:bool, norm:str):
         super(StatsEncoder, self).__init__()
         assert num_layers >= 1
+        assert norm in ['layer', 'batch']
 
         norm = nn.LayerNorm if norm == 'layer' else nn.BatchNorm1d
         # -------------------------------- #
-        modules = [nn.Linear(in_dim, ff_dim, bias=True), nn.GELU(), nn.Dropout(dropout)]
-        for n in range(num_layers - 1):
-            if n == num_layers - 1:
-                modules += [nn.Linear(ff_dim, ff_dim, bias=True), norm(ff_dim), nn.GELU(), nn.Dropout(dropout)]
+        modules = [SparseConnectedLayer(in_dim, ff_dim, bias=bias, pw=wdropoout, pb=bdropoout), nn.GELU(), nn.Dropout(dropout)]
+        for _ in range(num_layers - 1):
+            if prenorm:
+                modules += [SparseConnectedLayer(ff_dim, ff_dim, bias=bias, pw=wdropoout, pb=bdropoout), norm(ff_dim), nn.GELU(), nn.Dropout(dropout)]
             else:
-                modules += [nn.Linear(ff_dim, ff_dim, bias=True), nn.GELU(), nn.Dropout(dropout)]
+                modules += [SparseConnectedLayer(ff_dim, ff_dim, bias=bias, pw=wdropoout, pb=bdropoout), nn.GELU(), norm(ff_dim), nn.Dropout(dropout)]
 
-        self.stats1 = nn.Linear(ff_dim, out_dim, bias=True)
-        self.stats2 = nn.Linear(ff_dim, out_dim, bias=True)
+        self.stats1 = SparseConnectedLayer(ff_dim, out_dim, bias=bias, pw=wdropoout, pb=bdropoout)
+        self.stats2 = SparseConnectedLayer(ff_dim, out_dim, bias=bias, pw=wdropoout, pb=bdropoout)
         self.stats_encoder = nn.ModuleList(modules)
 
 
@@ -261,7 +54,7 @@ class StatsEncoder(nn.Module):
 
         output = inputs
         for layer in self.stats_encoder:
-            layer: nn.Linear | LayerNorm | nn.BatchNorm1d | nn.GELU | nn.Dropout
+            layer: nn.Linear | LayerNorm | nn.BatchNorm1d | nn.GELU | nn.Dropout | SparseConnectedLayer
             output: torch.Tensor
 
             if isinstance(layer, nn.BatchNorm1d):
@@ -273,7 +66,6 @@ class StatsEncoder(nn.Module):
         output = self.stats2(output) if opponent_stats else self.stats1(output)
 
         return output
-
 
 class ResultEncoder(nn.Module):
     def __init__(self, embed_dim):
@@ -289,25 +81,21 @@ class ResultEncoder(nn.Module):
 
         else: raise NotImplementedError
 
-
-class WindowedGamesFeatureEncoder(ConfigBase, nn.Module):
+class WindowGamesFeatureEncoder(ConfigBase, nn.Module):
     def __init__(self):
-        super(WindowedGamesFeatureEncoder, self).__init__()
+        super(WindowGamesFeatureEncoder, self).__init__()
         self.features_config: dict = self._get_config('features')['league']
-        self.models_config: dict = self._get_config('models')['preamtch']['windowedGamesFeatureEncoder']
+        self.models_config: dict = self._get_config('models')['prematch']['windowGamesFeatureEncoder']
 
         self.statsEncoder = StatsEncoder(   
             in_dim=len(FEATURES), 
-            ff_dim=self.models_config['statsEncoder']['ff_dim'], 
-            num_layers=self.models_config['statsEncoder']['num_layers'], 
-            norm=self.models_config['statsEncoder']['norm'],
             out_dim=self.models_config['embed_dim'], 
-            dropout=self.models_config['dropout'],
+            **self.models_config['statsEncoder']
         )
+        if self.models_config['pos_encoding']:
+            self.pos_embedding = nn.Embedding(self.features_config['window_size']+1, self.models_config['embed_dim'])
 
         self.resultEncoder = ResultEncoder(self.models_config['embed_dim'])
-        self.pos_embedding = nn.Embedding(self.features_config['window_size']+1, self.models_config['embed_dim'])
-        
 
     def forward(self, inputs: dict) -> torch.Tensor:
         """Preprocces and encode input data
@@ -317,9 +105,10 @@ class WindowedGamesFeatureEncoder(ConfigBase, nn.Module):
         d_window = self.encode_features(inputs['d_window'])
 
         # position encoding
-        r_window = r_window + self.pos_embedding(self.generate_pos_tokens(r_window))
-        d_window = d_window + self.pos_embedding(self.generate_pos_tokens(d_window))
-
+        if self.models_config['pos_encoding']:
+            r_window = r_window + self.pos_embedding(self.generate_pos_tokens(r_window))
+            d_window = d_window + self.pos_embedding(self.generate_pos_tokens(d_window))
+            
         return r_window, d_window
 
 
@@ -354,61 +143,177 @@ class WindowedGamesFeatureEncoder(ConfigBase, nn.Module):
 
         return output
 
+class WindowSeqEncoder(ConfigBase, nn.Module):
+    def __init__(self):
+        super(WindowSeqEncoder, self).__init__()
+        self.model_config: dict = self._get_config('models')['prematch']
+        
+        modules = []
+        output_dim = 0
+        encoder_type = self.model_config['windows_seq_encoder_type']
+        if isinstance(encoder_type, str):
+            types = encoder_type = [encoder_type]
+        else:
+            types = encoder_type
+
+        in_dim = self.model_config['windowGamesFeatureEncoder']['embed_dim']
+        for t in types:
+
+            # windows_seq_encoder
+            if t == 'transformer':
+                out_dim = self.model_config['windows_seq_encoder']['transformer']['embed_dim']
+
+                # Compare size
+                if output_dim != 0:
+                    if output_dim != out_dim:
+                        modules += [nn.Linear(in_features=output_dim, out_features=out_dim)]
+
+                elif in_dim != out_dim:
+                    modules += [nn.Linear(in_features=in_dim, out_features=out_dim)]
+
+                modules += [
+                    TransformerEncoder(**self.model_config['windows_seq_encoder']['transformer'])
+                    for _ in range(self.model_config['windows_seq_encoder']['transformer']['num_encoder_layers'])
+                ]
+                output_dim = out_dim
+
+            elif t in ['LSTM', 'LSTMN', 'GRU', 'IRNN']:
+                config = self.model_config['windows_seq_encoder'][t]
+                input_size = output_dim if output_dim != 0 else in_dim
+                modules += [RNN(rnn_type=t, input_size=input_size, **config)]
+
+                output_dim = config['embed_dim']
+                if 'bidirectional' in config and config['bidirectional']:
+                    output_dim *= 2
+
+            else: raise Exception('Unexcpeted windows seq encoder type')
+
+        self.windows_seq_encoder = nn.ModuleList(modules)
+        self.output_dim = output_dim
+
+        self.masking = SeqMasking(**self.model_config['windowGamesFeatureEncoder']['seq_masking'])
+        self.permutation = SeqPermutation(**self.model_config['windowGamesFeatureEncoder']['seq_permutation'])
+
+    def forward(self, window: torch.Tensor, key_padding_mask:torch.Tensor=None, seq_len:torch.Tensor=None) -> torch.FloatTensor:
+        with torch.no_grad():
+            window = self.masking(window)
+            window = self.permutation(window)
+
+        skip_connection = None
+        for idx, layer in enumerate(self.windows_seq_encoder):
+            if isinstance(layer, nn.Linear):
+                window = layer(window)
+
+            elif isinstance(layer, TransformerEncoder):
+                if idx == 0:
+                    window = skip_connection = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
+
+                elif (idx+1)%self.model_config['windows_seq_encoder']['transformer']['skip_connection'] == 0:
+                    window = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
+                    window = skip_connection = window + skip_connection
+
+                else:
+                    # However a ``` `True` value indicates that the corresponding key value will be IGNORED ```
+                    # for some reasons irl it's the other way around
+                    window = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
+            else: 
+                window = layer(window)
+
+        window: torch.Tensor 
+        if len(window.shape) == 3:
+            if window.shape[-1] > 1:
+                # |window| : (batch_size, seq_len, embed_dim)
+                pooled_w = self.__global_avg_pooling(
+                    window=window, seq_len=seq_len,
+                    key_padding_mask=key_padding_mask) 
+                # |pooled| : (batch_size, embed_dim)
+                return pooled_w
+            else:
+                # |window| : (batch_size, embed_dim, 1)
+                pooled = window.squeeze(2)
+                # |pooled| : (batch_size, embed_dim)
+                return pooled_w
+        else:
+            return window
+
+    def __global_avg_pooling(self, window: torch.Tensor, seq_len: torch.Tensor, key_padding_mask: torch.Tensor)  -> torch.FloatTensor:
+        # multiply window by mask - zeros all padded tokens
+        pooled = torch.mul(window, key_padding_mask.unsqueeze(2))
+        # |pooled| : (batch_size, seq_len, d_model)
+
+        # sum all elements by seq_len dim
+        pooled = pooled.sum(dim=1)
+        # |pooled| : (batch_size, d_model)
+
+        # divide samples by by its seq_len, so we will get mean values by each sample
+        pooled = pooled / seq_len.unsqueeze(1)
+        # |pooled| : (batch_size, d_model)
+
+        return pooled
+
 
 class OutputHead(ConfigBase, nn.Module):
     def __init__(self, in_dim:int, regression:bool):
         super().__init__()
         self.emb_storage = {}
         self.regression = regression
-        self.model_config: dict = self._get_config('models')['preamtch']
+        self.model_config: dict = self._get_config('models')['prematch']
 
         if self.model_config['compare_encoder_type'] == 'transformer':
             conf = self.model_config['compare_encoder']['transformer']
-            self.in_fnn = nn.Linear(
-                in_features=in_dim, 
-                out_features=conf['embed_dim'],
-                bias=False)
-            self.compare_embedding = nn.Embedding(2, conf['embed_dim'])
-            self.compare = nn.Sequential(
-                *([
-                    TransformerEncoder(**conf
-                    ) for _ in range(conf['num_encoder_layers'])
-                    ])
-            )
-            self.out_fnn = nn.Linear(
-                in_features=conf['embed_dim'], 
+            embed_dim = conf['embed_dim']
+
+            self.compare_embedding = nn.Embedding(2, embed_dim)
+
+            self.in_fnn = nn.Linear(in_features=in_dim, out_features=embed_dim, bias=False)
+            
+            self.compare = nn.Sequential(*[
+                    TransformerEncoder(**conf) for _ in range(conf['num_encoder_layers'])
+            ])
+            self.out_fnn = SparseConnectedLayer(
+                in_features=embed_dim, 
                 out_features=len(FEATURES) if regression else 1, 
-                bias=False)
+                **conf)
 
         elif self.model_config['compare_encoder_type'] == 'linear':
             assert not regression, 'regression only for transformer'
             conf = self.model_config['compare_encoder']['linear']
 
+            assert conf['norm'] in ['batch', 'layer', None]
+            if conf['norm'] == 'batch':
+                norm = nn.BatchNorm1d
+            elif conf['norm'] == 'layer':
+                norm = nn.LayerNorm
+            else:
+                norm = Callable
+
             modules = []
             for _in, _out in zip( [in_dim]+conf['in_fnn_dims'][:-1], conf['in_fnn_dims'] ):
-                modules += [nn.Linear(_in, _out, bias=conf['bias']), nn.GELU(), nn.Dropout(conf['dropout'])]
+                if conf['prenorm']:
+                    modules += [SparseConnectedLayer(_in, _out, bias=conf['in_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']), norm(_out), nn.GELU(), nn.Dropout(conf['dropout'])]
+                else:
+                    modules += [SparseConnectedLayer(_in, _out, bias=conf['in_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']), nn.GELU(), norm(_out), nn.Dropout(conf['dropout'])]
             self.in_fnn = nn.Sequential(*modules)
-
 
             modules = []
             for _in, _out in zip( [_out*2]+conf['compare_fnn_dims'][:-1], conf['compare_fnn_dims']):
-                modules += [nn.Linear(_in, _out, bias=conf['bias']), nn.GELU(), nn.Dropout(conf['dropout'])]
-            modules += [nn.Linear(conf['compare_fnn_dims'][-1], conf['out_dim'], bias=conf['bias'])]
+                modules += [SparseConnectedLayer(_in, _out, bias=conf['compare_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']), nn.GELU(), nn.Dropout(conf['dropout'])]
+            modules += [nn.Linear(conf['compare_fnn_dims'][-1], conf['out_dim'], bias=conf['compare_fnn_bias'])]
             self.compare_fnn = nn.Sequential(*modules)
 
         elif self.model_config['compare_encoder_type'] == 'subtract':
             assert not regression, 'regression only for transformer'
-            conf = self.model_config['compare_encoder']['linear']
+            conf = self.model_config['compare_encoder']['subtract']
 
             modules = []
             for _in, _out in zip( [in_dim]+conf['in_fnn_dims'][:-1], conf['in_fnn_dims'] ):
-                modules += [nn.Linear(_in, _out, bias=conf['bias']), nn.GELU(), nn.Dropout(conf['dropout'])]
+                modules += [SparseConnectedLayer(_in, _out, bias=conf['in_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']), nn.GELU(), nn.Dropout(conf['dropout'])]
             self.in_fnn = nn.Sequential(*modules)
 
             modules = []
             for _in, _out in zip( [_out]+conf['compare_fnn_dims'][:-1], conf['compare_fnn_dims']):
-                modules += [nn.Linear(_in, _out, bias=False), nn.Tanh(), nn.Dropout(conf['dropout'])]
-            modules += [nn.Linear(conf['compare_fnn_dims'][-1], 1, bias=False)]
+                modules += [SparseConnectedLayer(_in, _out, bias=conf['compare_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']), nn.Tanh(), nn.Dropout(conf['dropout'])]
+            modules += [nn.Linear(conf['compare_fnn_dims'][-1], 1, bias=conf['compare_fnn_bias'])]
             self.compare_fnn = nn.Sequential(*modules)
         
         else: raise Exception
@@ -471,3 +376,5 @@ class OutputHead(ConfigBase, nn.Module):
 
     def __generate_pos_tokens(self, inputs: torch.Tensor) -> torch.Tensor:
         return torch.arange(inputs.size(1), device=inputs.device, dtype=torch.int64).repeat(inputs.size(0), 1)
+
+

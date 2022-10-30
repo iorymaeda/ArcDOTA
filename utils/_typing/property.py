@@ -2,6 +2,7 @@ import pydantic
 from pydantic import BaseModel as B
 from pydantic.dataclasses import dataclass as D
 
+# Use this to parse json to pydantic model
 # pydantic.parse_obj_as(utils._typing.property.Match, league[0])
 # utils._typing.property.Match.parse_obj(league[0])
 
@@ -17,11 +18,18 @@ class Stats(B):
     denies_10: int = 0
     roshan_kills: int = 0
     tower_damage: int = 0
-    hero_damage: int = 0
+    attack_damage: int = 0
+    spell_damage: int = 0
     stuns: float = 0
-    heal: float = 0
-    
+    heal: int = 0
 
+    # ------------------- #
+    # In my opinion this features not rly depended on heroes
+    obs_placed: int = 0
+    sen_placed: int = 0
+    camps_stacked: int = 0
+    creeps_stacked: int = 0
+    
 class TimeSeries(B):
     gold: list[int]
     kills: list[int]
@@ -66,13 +74,13 @@ class Players(B):
 class League(B):
     id: int
     name: str
-    # Any: 'professional' | 'premium' | 'excluded'
+    # tier: Any - 'professional' | 'premium' | 'excluded'
     # premium is official valve tournaments
     # professional is unofficial tournaments
     # excluded is smth like trash
     tier: str
     prize_pool: int
-
+    
 
 class PlayerOverview(B):
     slot: int
@@ -103,7 +111,9 @@ class Match(B):
 
     isleague: bool
     league: League | None
-    
+    series_type: int
+    series_id: int
+
     players: Players
     teams: Teams | None
 

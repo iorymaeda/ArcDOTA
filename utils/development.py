@@ -1,10 +1,13 @@
-"""Stranger thins to do develompent stuff"""
-import time
+"""Stranger thigs to do develompent stuff"""
+
 import asyncio
+import inspect
+import argparse
 import datetime
 import traceback
 
 import aiohttp
+import discord
 
 from .exceptions import opendota
 
@@ -88,6 +91,12 @@ class SessionHelper:
             else:
                 if await self.on_bad_status(sec=sec, headers=dict(response.headers), status=status):
                     counter+=1
+                    
+                try:
+                    json = await response.json()
+                except Exception:
+                    pass
+
                 return await self._request(method=method, URL=URL, counter=counter, json=json, status=status, raw=raw)
 
         except (aiohttp.ServerTimeoutError, asyncio.exceptions.TimeoutError):
@@ -118,22 +127,45 @@ class SessionHelper:
         self.session = aiohttp.ClientSession(timeout=self.timeout)
 
 
-class OpendotaSession(SessionHelper):
+class WaitSession(SessionHelper):
     def __init__(self):
         super().__init__()
-        # if True we wait until it end and do not send requests
-        self.api_limit = False
-    
 
-    async def opendota_api_limit(self, sec:int , headers: dict[str, str], *args, **kwargss) -> bool | None:
-        """Return `True` if this is a opendota time limit and we must try again later
+        # if True we wait until it end and do not send requests
+        self.__api_limit = False
+
+    async def wait_on_rate_limit(self):
+        while self.__api_limit:
+            await asyncio.sleep(0.1)
+
+    async def get(self, *args, **kwargs): 
+        await self.wait_on_rate_limit()
+        return await super().get(*args, **kwargs)
+
+    async def post(self, *args, **kwargs): 
+        await self.wait_on_rate_limit()
+        return await super().post(*args, **kwargs)
+
+    async def head(self, *args, **kwargs): 
+        await self.wait_on_rate_limit()
+        return await super().head(*args, **kwargs)
+
+    async def delete(self, *args, **kwargs): 
+        await self.wait_on_rate_limit()
+        return await super().delete(*args, **kwargs)
+
+
+class OpendotaSession(WaitSession):
+    def __init__(self):
+        super().__init__()
+
+    async def api_limit(self, sec:int , headers: dict[str, str], *args, **kwargs) -> bool:
+        """Return `True` if this is a error and we must try again
 
         Opendota limit resets every minute, if a new minute has been begun after request -
         limit has skiped and `_current_sec` will be less than `sec`
         
-        `sec` is second before request
-        """
-        
+        `sec` is second before request"""
         if not isinstance(headers, dict): return True
 
         headers = {k.lower():v for k, v in headers.items()}
@@ -148,32 +180,141 @@ class OpendotaSession(SessionHelper):
                 if self._current_sec > sec: 
                     if self.verbose: print(f'sleep: {60-self._current_sec + 1.} sec')
 
-                    self.api_limit = True
+                    super().__api_limit = True
                     await asyncio.sleep(60-self._current_sec + 1.)
-                    self.api_limit = False
-
-                return False
+                    super().__api_limit = False
         return False
                
     async def on_bad_status(self, *args, **kwargs):
-        return await self.opendota_api_limit(*args, **kwargs)
+        return await self.api_limit(*args, **kwargs)
 
-    async def wait_on_rate_limit(self):
-        while self.api_limit:
-            await asyncio.sleep(0.5)
 
-    async def get(self, *args, **kwargs): 
-        await self.wait_on_rate_limit()
-        return await super().get(*args, **kwargs)
+class GithubSession(WaitSession):
+    def __init__(self):
+        super().__init__()
 
-    async def post(self, *args, **kwargs): 
-        await self.wait_on_rate_limit()
-        return await super().get(*args, **kwargs)
+    async def api_limit(self, sec:int , headers: dict[str, str], *args, **kwargs) -> bool:
+        """Return `True` if this is a error and we must try again"""
+        if not isinstance(headers, dict): return True
 
-    async def head(self, *args, **kwargs): 
-        await self.wait_on_rate_limit()
-        return await super().get(*args, **kwargs)
+        headers = {k.lower():v for k, v in headers.items()}
+        if "x-ratelimit-remaining" in headers and int(headers['x-ratelimit-remaining']) <= 0:
+            super().__api_limit = True
+            await asyncio.sleep(int(headers['x-ratelimit-reset']))
+            super().__api_limit = False
+        return False
+               
+    async def on_bad_status(self, *args, **kwargs):
+        return await self.api_limit(*args, **kwargs)
 
-    async def delete(self, *args, **kwargs): 
-        await self.wait_on_rate_limit()
-        return await super().get(*args, **kwargs)
+
+class substitute:
+    """Decorator and context manager to substitute specified exceptions with a certain exception
+
+    With regular function:
+
+    @substitute(Exception, surrogate=NotImplementedError)
+    def test():
+        raise NotADirectoryError('aaaAaAaa')
+    test()
+    >>> NotImplementedError: aaaAaAaa
+
+    With coroutine function:
+
+    @substitute(Exception, surrogate=NotImplementedError)
+    async def test():
+        raise NotADirectoryError
+    await test()
+    >>> NotImplementedError
+
+    Also this fine works without exceptions:
+
+    @substitute(Exception, surrogate=NotImplementedError)
+    async def test():
+        return "Hello World!"
+    await test()
+    >>> Hello World!
+    """
+
+    def __init__(self, *exceptions, surrogate):
+        self.exceptions = exceptions
+        self.surrogate = surrogate
+
+    def __call__(self, func):
+        if inspect.iscoroutinefunction(func):
+            async def wrapped(*args, **kwargs):
+                try: return await func(*args, **kwargs)
+                except self.exceptions as e: raise self.surrogate(e)
+        else:
+            def wrapped(*args, **kwargs):
+                try: return func(*args, **kwargs)
+                except self.exceptions as e: raise self.surrogate(e)
+                    
+        return wrapped
+
+    def __enter__(self):
+        raise NotImplementedError
+
+    def __exit__(self, exctype, excinst, exctb):
+        raise NotImplementedError
+
+    async def __aenter__(self):
+        raise NotImplementedError
+
+    async def __aexit__(self, exctype, excinst, exctb):
+        raise NotImplementedError
+        
+
+async def execute_cor(*cor):
+    """Execute all corutines at the same time and returns result
+    
+    Example:
+
+    async def foo(a):
+        return a
+    
+    await execute_cor(foo('bar'), foo('buzz'))
+    >>> ('bar', 'buzz')
+    """
+
+    loop = asyncio.get_event_loop()
+    tasks = [loop.create_task(t) for t in cor]
+    while True:
+        if all([t.done() for t in tasks]):
+            return [t.result() for t in tasks]
+
+        await asyncio.sleep(0.05)
+
+
+# ArgumentParser close program on error, rewrite
+class ArgumentParser(argparse.ArgumentParser):    
+    def error(self, message):
+        raise Exception(message)
+
+    def exit(self, status, message):
+        pass
+
+class BaseBot(discord.Client):
+    async def execute_commands(self, message: discord.Message):
+        try:
+            message_command = message.content.replace(self.command_prefix, '', 1)
+            command, args = message_command.split()[0], message_command.split()[1:]
+            if message_command in self.commands:
+                func = self.commands[message_command]
+                args = None
+
+            
+            elif command in self.commands:
+                func = self.commands[command]
+                args = self.parsers[func].parse_args(args)
+
+            else:
+                return
+
+            await func(message, args)
+            
+        except Exception as e:
+            traceback.print_exc()
+            message = await message.channel.send(e)
+            await asyncio.sleep(5)
+            await message.delete()

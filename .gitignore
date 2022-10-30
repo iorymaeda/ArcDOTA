@@ -11,6 +11,7 @@
 *.torch
 !inference/models_w/prematch/*.torch
 *.json
+scarpe/_dotaconstants
 !scarpe/dotaconstants/*.json
 !scarpe/dotaconstants/build/*.json
 !scarpe/dotaconstants/json/*.json
