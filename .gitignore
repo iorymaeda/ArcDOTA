@@ -9,7 +9,7 @@
 !inference/files/*.pkl
 *.npy
 *.torch
-!inference/models_w/prematch/*.torch
+!inference/files/models_w/prematch/*.torch
 *.json
 scarpe/_dotaconstants
 !scarpe/dotaconstants/*.json
