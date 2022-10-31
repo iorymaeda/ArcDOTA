@@ -65,7 +65,7 @@ class HawkWrapper(SessionHelper, DotaconstantsBase):
             if not self.selenium.wait('app', 3):
                 raise exceptions.hawk.MatchNotFound('Cant get hawk match')
             return self.selenium.page_source
-        
+
         response = await self.get(url, raw=True)
         if response.status//100 not in [2, 3]:
             raise exceptions.hawk.MatchNotFound('Cant get hawk match')
@@ -87,7 +87,7 @@ class HawkWrapper(SessionHelper, DotaconstantsBase):
     @substitute(Exception, surrogate=exceptions.hawk.CantParseMatch)
     async def parse_match(self, match_id: int) -> _typing.hawk.Match:
         response = await self.fetch_match(match_id=match_id)
-        response = response if isinstance(response, str) else await response.text() 
+        response = response if isinstance(response, str) else await response.text()
 
         tree: html.HtmlElement = html.fromstring(response)
         data_elems: list[html.HtmlElement] = tree.xpath('//*[@id="app"]')
@@ -118,24 +118,24 @@ class HawkWrapper(SessionHelper, DotaconstantsBase):
                         if odds['is_team1_first'] == True:
                             radiant_odd = float(odd['first_team_winner'])
                             dire_odd = float(odd['second_team_winner'])
-                            
+
                         elif odds['is_team1_first'] == False:
                             radiant_odd = float(odd['second_team_winner'])
                             dire_odd = float(odd['first_team_winner'])
                         else: raise
-                        
+
                     elif is_team1_radiant == False:
                         if odds['is_team1_first'] == True:
                             dire_odd = float(odd['first_team_winner'])
                             radiant_odd = float(odd['second_team_winner'])
-                            
+
                         elif odds['is_team1_first'] == False:
                             dire_odd = float(odd['second_team_winner'])
-                            radiant_odd = float(odd['first_team_winner'])         
+                            radiant_odd = float(odd['first_team_winner'])
                         else: raise
-                        
+
                     else: raise
-                    
+
                     created_at = int(time.mktime(datetime.datetime.strptime(odd['created_at'], '%Y-%m-%d %H:%M:%S').timetuple()))
                     _odds.append({
                         'r_odd': radiant_odd,
@@ -143,10 +143,10 @@ class HawkWrapper(SessionHelper, DotaconstantsBase):
                         'live': False,
                         'created_at': created_at
                     })
-                    
+
             match_odds_info_array[odds['odds_provider_code_name']] = _odds
 
-        if not is_team1_radiant: 
+        if not is_team1_radiant:
             radiant_heroes, dire_heroes = dire_heroes, radiant_heroes
             radiant_team, dire_team = dire_team, radiant_team
 
@@ -165,7 +165,7 @@ class HawkWrapper(SessionHelper, DotaconstantsBase):
     @substitute(Exception, surrogate=exceptions.hawk.CantParseSeries)
     async def parse_series(self) -> list[_typing.hawk.Series]:
         response = await self.fetch_main_page()
-        response = response if isinstance(response, str) else await response.text() 
+        response = response if isinstance(response, str) else await response.text()
 
         tree: html.HtmlElement = html.fromstring(response)
         data_elems: list[html.HtmlElement] = tree.xpath('//*[@id="app"]')
@@ -182,8 +182,9 @@ class SteamWrapper(SessionHelper, ConfigBase):
     BASE_URL = "http://api.steampowered.com"
 
     def __init__(self):
-        super().__init__()    
-        self.key = os.environ.get('steam_api_key')
+        super().__init__()
+        #self.key = os.environ.get('steam_api_key')
+        self.key = '1500CC20BA6D10B297D5682F08AFB107'
         self.key = '' if self.key is None else f"key={self.key}"
 
 
@@ -198,7 +199,7 @@ class SteamWrapper(SessionHelper, ConfigBase):
         if data['result']['games']:
             return data['result']['games'][0]
         raise exceptions.steam.LiveGameNotFound(f"Game not found")
-        
+
 
     async def fetch_live_league_games(self, partner:Literal[0, 1, 2, 3]=0) -> list[_typing.steam.LeagueGame]:
         url = f"{self.BASE_URL}/IDOTA2Match_570/GetLiveLeagueGames/v1?{partner=}"
@@ -248,14 +249,15 @@ class OpendotaWrapper(OpendotaSession):
 
     def __init__(self):
         super().__init__()
-        self.key = os.environ.get('opendota_api_key')
+        #self.key = os.environ.get('opendota_api_key')
+        self.key = '955d19ae-6346-4d17-96eb-0e7af728d08d'
         self.key = '' if self.key is None else f"api_key={self.key}"
 
 
     async def parse_game(self, match_id: int):
         """League games usually parses automaticly.
         Game parsing may take up to 15 minutes"""
-        url = f'{self.BASE_URL}/request/{match_id}' 
+        url = f'{self.BASE_URL}/request/{match_id}'
         url = url + f"?{self.key}" if self.key else url
         data, status = await self.get(url)
         if status//100 not in [2, 3]:
@@ -294,7 +296,7 @@ class OpendotaWrapper(OpendotaSession):
     async def force_fetch_game(self, match_id: _typing.opendota.match_id, num=20) -> _typing.opendota.Match | None:
         """Parse and fetch game"""
         num-= 1
-        if num <= 0: 
+        if num <= 0:
             raise exceptions.opendota.ParsingNotPossible
 
         try:
@@ -304,14 +306,14 @@ class OpendotaWrapper(OpendotaSession):
             await self.parse_game(match_id=match_id)
             await asyncio.sleep(30)
             print('GameNotParsed: Try another one force fetch...')
-            return await self.force_fetch_game(match_id, num=num) 
-        
+            return await self.force_fetch_game(match_id, num=num)
+
         except exceptions.opendota.OpendotaError:
             await asyncio.sleep(4)
             print('OpendotaError: Try another one force fetch...')
             return await self.force_fetch_game(match_id, num=num)
-            
-         
+
+
     async def fetch_team_games(self, team: int) -> _typing.opendota.TeamMatches:
         url = f'{self.BASE_URL}/teams/{team}/matches/'
         url = url + f"?{self.key}" if self.key else url
@@ -320,7 +322,7 @@ class OpendotaWrapper(OpendotaSession):
             raise exceptions.opendota.OpendotaError(status, games)
         return games
 
-    
+
     async def fetch_teams_meetings(self, team1: int, team2: int, limit:int=None) -> list[int]:
         if limit is None: limit = 1_000
         url = f"""{self.BASE_URL}/explorer?sql=
@@ -393,7 +395,7 @@ class OpendotaWrapper(OpendotaSession):
         data, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise exceptions.opendota.OpendotaError(status, data)
-        
+
         data: list[_typing.opendota.TeamPlayers]
         return [player['account_id'] for player in data if player['is_current_team_member']]
 
@@ -403,7 +405,7 @@ class PropertyWrapper(ConfigBase):
 
     Be careful: ConfigBase after load model in inference will output config from train phase"""
 
-    def __init__(self, 
+    def __init__(self,
         scaler_path:str = "inference/files/scaler_league.pkl",
         tokenizer_path:str = "inference/files/tokenizer_league.pkl"
         ):
@@ -419,27 +421,27 @@ class PropertyWrapper(ConfigBase):
 
         # //TODO: fix tokenizer, put it together with a model
         self.tokenizer = tokenizer.Tokenizer(path=path / tokenizer_path)
-        # //TODO: put to configs mask_type, y_output and anothers hyper-parameters 
+        # //TODO: put to configs mask_type, y_output and anothers hyper-parameters
         self.collector = TSCollector(
             tokenizer_path=path / tokenizer_path,
-            y_output='crossentropy', 
+            y_output='crossentropy',
             teams_reg_output=False,
-            mask_type='bool', 
+            mask_type='bool',
         )
         self.batch_size = 60
 
-        client = pymongo.MongoClient("mongodb://localhost:27017/") 
+        client = pymongo.MongoClient("mongodb://localhost:27017/")
         self.table = client['DotaMatches']['leagueMatches']
 
         self.window_size = self._get_config('features')['league']['window_size']
         self.loop = asyncio.get_event_loop()
-        
+
     async def log(self, *args):
         message = ''.join(map(str, args))
         print(message)
 
     async def prematch(self, team1: int|None = None, team2: int|None = None, match_id: int|None = None, league_id: int|None = None, prize_pool: int|None = None) -> dict:
-        if match_id is None and (not team1 or not team2): 
+        if match_id is None and (not team1 or not team2):
             raise Exception("If you not provide match_id you should provide: team1, team2, [ league_id or prize_pool ]")
         assert (team1 is None and team2 is None) or (team1 is not None and team2 is not None), \
             "Both team1 and team2 should be None or not None"
@@ -451,7 +453,7 @@ class PropertyWrapper(ConfigBase):
 
         if team2 is not None and self.tokenizer.tokenize(team2, teams=True) == 1:
             raise exceptions.property.DireUntokenizedTeam(team2)
-            
+
         # ----------------------------------------------------------------------------------- #
         await self.log("parse prematch anchor")
         anchor = await self.prematch_anchor(team1=team1, team2=team2, match_id=match_id, league_id=league_id, prize_pool=prize_pool)
@@ -528,7 +530,7 @@ class PropertyWrapper(ConfigBase):
                 }
                 r_stack = [p['account_id'] for p in anchor_match['players'] if p['team'] == 0]
                 r_stack = [p['account_id'] for p in anchor_match['players'] if p['team'] == 1]
-                
+
         else:
             # Build anchor from scratch
             if prize_pool is None:
@@ -553,7 +555,7 @@ class PropertyWrapper(ConfigBase):
 
     async def prematch_corpus(self, team1: int, team2: int, match_id:int|None=None):
         team1_matches, team2_matches = await execute_cor(
-            self.opendota_wrapper.fetch_team_games(team1), 
+            self.opendota_wrapper.fetch_team_games(team1),
             self.opendota_wrapper.fetch_team_games(team2),
         )
 
@@ -580,7 +582,7 @@ class PropertyWrapper(ConfigBase):
         # //TODO: FIXIT, this drop should be in parsing, (IN EVALUATOR)
         corpus = corpus[~(corpus['leavers'] > 0)]
         await self.log("Num of games in corpus:", len(corpus))
-        
+
         return corpus
 
     async def parse_team_matches(self, matches: _typing.opendota.TeamMatches) -> list[_typing.property.Match]:
@@ -593,8 +595,8 @@ class PropertyWrapper(ConfigBase):
                     if match_id not in ids:
                         batch.append(  self.parse_match(match_id=match_id) )
                         await self.log(f"{match_id=} parse {idx} game, num of parsed_games: {len(batch)}")
-                    else: await self.log(f"{match_id=} has been skipped, duplicated")        
-                else: await self.log(f"{match_id=} has been skipped, too old")    
+                    else: await self.log(f"{match_id=} has been skipped, duplicated")
+                else: await self.log(f"{match_id=} has been skipped, too old")
             else: await self.log(f"{match_id=} has been skipped, bad opponent: {tmatch['opposing_team_id']}")
 
             if len(batch) == self.batch_size:
@@ -603,17 +605,17 @@ class PropertyWrapper(ConfigBase):
 
             if len(team_matches) >= self.window_size:
                 break
-            
-        if batch and len(team_matches) < self.window_size: 
+
+        if batch and len(team_matches) < self.window_size:
             await self.__parse_batch(batch, ids, team_matches)
 
         await self.log("done :", len(team_matches))
         return team_matches
-        
+
     async def save_match_to_db(self, match: _typing.opendota.Match):
         self.table.find_one_and_replace(
-            filter={'match_id': match['match_id']}, 
-            replacement=match, 
+            filter={'match_id': match['match_id']},
+            replacement=match,
             upsert=True)
 
     async def get_match_from_db(self, match_id: int) -> _typing.opendota.Match | None:
@@ -625,7 +627,7 @@ class PropertyWrapper(ConfigBase):
         if match is not None: return match
 
         match = await self.opendota_wrapper.force_fetch_game(match_id)
-        if match is not None: 
+        if match is not None:
             await self.save_match_to_db(match=match)
             return match
 
@@ -643,7 +645,7 @@ class PropertyWrapper(ConfigBase):
             if self.evaluator(property_match):
                 team_matches.append(property_match)
                 ids.add(od_match['match_id'])
-            else: 
+            else:
                 await self.log(f"match_id={property_match.match_id} has been skipped unevaluated game")
 
             # if len(team_matches) >= self.window_size: break
@@ -661,13 +663,13 @@ class PropertyWrapper(ConfigBase):
 
         except exceptions.property.LeaguePPNotFound as e:
             await self._scarpe_prize_pool(e.leagueid)
-            
+
         except exceptions.property.LeagueIDNotFound as e:
             await self._scarpe_leagues()
 
         self.opendota_parser = parsers.OpendotaParser()
         return await self.parse_od_match(match=match)
-        
+
     async def _scarpe_leagues(self):
         leagues = await self.opendota_wrapper.fetch_leagues()
         path = self._get_relative_path()
@@ -688,7 +690,7 @@ class PropertyWrapper(ConfigBase):
         prize_pools[league_id] = pool['result']['prize_pool']
         with open(path / 'scarpe/output/prize_pools.json', 'w', encoding='utf-8') as f:
             json.dump(prize_pools, f, ensure_ascii=False, indent=4)
-        
+
     async def get_prize_pool_by_league_id(self, league_id):
         if league_id in self.opendota_parser.prize_pools:
             prize_pool = self.opendota_parser.prize_pools[league_id]
