@@ -36,6 +36,13 @@ class ConfigBase(PathBase):
         with open(path / config_path, 'r') as stream:
             return yaml.safe_load(stream)
 
+    @staticmethod
+    def load_config(config: dict):
+        if isinstance(config, dict):
+            ConfigBase._configs.update(config)
+
+        else:
+            raise Exception(f"Unexcepted type: {type(config)}")
 
 class DotaconstantsBase(PathBase):
     RADIANT_SIDE = [0, 1, 2, 3, 4]

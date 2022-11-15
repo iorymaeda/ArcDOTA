@@ -6,8 +6,10 @@ import argparse
 import datetime
 import traceback
 
-import aiohttp
 import discord
+import aiohttp
+import aiosqlite
+import pandas as pd
 
 from .exceptions import opendota
 
@@ -294,7 +296,8 @@ class ArgumentParser(argparse.ArgumentParser):
     def exit(self, status, message):
         pass
 
-class BaseBot(discord.Client):
+
+class BaseDiscordBot(discord.Client):
     async def execute_commands(self, message: discord.Message):
         try:
             message_command = message.content.replace(self.command_prefix, '', 1)
@@ -318,3 +321,41 @@ class BaseBot(discord.Client):
             message = await message.channel.send(e)
             await asyncio.sleep(5)
             await message.delete()
+
+async def sql_table_to_pd(database:str|aiosqlite.Connection, table:str) -> pd.DataFrame:
+    async def _exec(db: aiosqlite.Connection):
+        db.row_factory = aiosqlite.Row
+        async with db.execute(f'SELECT * FROM {table}') as cursor:
+            values = await cursor.fetchall()
+            async for row in cursor:
+                columns = row.keys()
+                df = pd.DataFrame(values, columns=columns)
+                return df
+
+    if isinstance(database, str):
+        async with aiosqlite.connect(database) as db:
+            return await _exec(db)
+
+    elif isinstance(database, aiosqlite.Connection):
+        return await _exec(database)
+
+    else:
+        raise Exception
+
+async def sql_table_to_list(database:str|aiosqlite.Connection, table:str) -> list[dict]:
+    """Return table as list of dict, where each list element is table row, dict keys is column names"""
+    async def _exec(db: aiosqlite.Connection):
+        db.row_factory = aiosqlite.Row
+        sql = f"""SELECT * FROM {table}"""
+        async with db.execute(sql) as cursor:
+            return [{column:value for value, column in zip(row, row.keys())} async for row in cursor]
+            
+    if isinstance(database, str):
+        async with aiosqlite.connect(database) as db:
+            return await _exec(db)
+
+    elif isinstance(database, aiosqlite.Connection):
+        return await _exec(database)
+    
+    else:
+        raise Exception
