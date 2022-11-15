@@ -264,7 +264,6 @@ class Scarper():
             match_ids = [match['match_id'] for match in unparsed_matches]
             self.league_matches = self.league_matches + match_ids
 
-
-scarper = Scarper()
 if __name__ == '__main__':
+    scarper = Scarper()
     scarper.start()

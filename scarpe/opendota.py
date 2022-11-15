@@ -1,8 +1,13 @@
 """Script to parse league games"""
-import sys; sys.path.append("../")
+
+import sys
 import time
 import asyncio
+import pathlib
 import traceback
+if __name__ == '__main__':
+    SCRIPT_DIR = pathlib.Path(__file__).parent
+    sys.path.append(str(SCRIPT_DIR.parent))
 
 import pymongo
 

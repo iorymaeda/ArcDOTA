@@ -1,11 +1,14 @@
 """Scarpe all leagues and its prize pools"""
 
-import os
-import sys; sys.path.append('../')
-
+import sys
 import time
 import json
 import asyncio
+import pathlib
+if __name__ == '__main__':
+    SCRIPT_DIR = pathlib.Path(__file__).parent
+    sys.path.append(str(SCRIPT_DIR.parent))
+    
 
 from utils.wrappers import OpendotaWrapper, SteamWrapper
 
@@ -34,16 +37,22 @@ async def prize_pool(leagues: set, batch_size: int = 64) -> dict:
 
 async def main():
     # ----------------------------------------------------------------------- #
+    # Leagues and Teams
     od = OpendotaWrapper()
     leagues = await od.fetch_leagues()
     leagues_id = [l['leagueid'] for l in leagues]
-    with open('output/leagues.json', 'w', encoding='utf-8') as f:
+    with open(SCRIPT_DIR / 'output/leagues.json', 'w', encoding='utf-8') as f:
         json.dump(leagues, f, ensure_ascii=False, indent=4)
+    
+    teams = await od.fetch_teams()
+    with open(SCRIPT_DIR / 'output/teams.json', 'w', encoding='utf-8') as f:
+        json.dump(teams, f, ensure_ascii=False, indent=4)
 
     # ----------------------------------------------------------------------- #
+    # Prize pools
     try:
         # Parse new leagues
-        with open('output/prize_pools.json', 'r', encoding='utf-8') as f:
+        with open(SCRIPT_DIR / 'output/prize_pools.json', 'r', encoding='utf-8') as f:
             league_prize_pool: dict = json.load(f)
 
         leagues_id = set([l for l in leagues_id if str(l) not in league_prize_pool])
@@ -54,14 +63,12 @@ async def main():
         # Parse from scratch
         league_prize_pool = await prize_pool(set(leagues_id))
 
-    # ----------------------------------------------------------------------- #
-    with open('output/prize_pools.json', 'w', encoding='utf-8') as f:
+    with open(SCRIPT_DIR / 'output/prize_pools.json', 'w', encoding='utf-8') as f:
         json.dump(league_prize_pool, f, ensure_ascii=False, indent=4)
 
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
-    loop.close()
 
     
