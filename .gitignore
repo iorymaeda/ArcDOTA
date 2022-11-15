@@ -1,6 +1,5 @@
 *.log
 
-
 # data
 *.rar
 *.h5
@@ -18,11 +17,12 @@ scarpe/_dotaconstants
 !scarpe/output/leagues.json
 !scarpe/output/prize_pools.json
 
+
 *.exe
 *.bat
 *.cmd
 train/logs/fit
-
+train/wandb
 
 .VSCodeCounter
 .ipynb_checkpoints
