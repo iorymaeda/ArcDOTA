@@ -18,7 +18,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from . import _typing, parsers, evaluator, tokenizer, scalers, exceptions
-from .time_series import TSCollector
+from .time_series import PrematchTSCollector
 from .base import ConfigBase, DotaconstantsBase
 from .development import OpendotaSession, SessionHelper, suppress, substitute, execute_cor
 
@@ -311,14 +311,23 @@ class OpendotaWrapper(OpendotaSession):
             print('OpendotaError: Try another one force fetch...')
             return await self.force_fetch_game(match_id, num=num)
             
-         
-    async def fetch_team_games(self, team: int) -> _typing.opendota.TeamMatches:
-        url = f'{self.BASE_URL}/teams/{team}/matches/'
+
+    async def fetch_teams(self) -> list[_typing.opendota.Team]:
+        url = f'{self.BASE_URL}/teams'
         url = url + f"?{self.key}" if self.key else url
-        games, status = await self.get(url)
+        resp, status = await self.get(url)
         if status//100 not in [2, 3]:
-            raise exceptions.opendota.OpendotaError(status, games)
-        return games
+            raise exceptions.opendota.OpendotaError(status, resp)
+        return resp
+
+
+    async def fetch_team_games(self, team: int) -> _typing.opendota.TeamMatches:
+        url = f'{self.BASE_URL}/teams/{team}/matches'
+        url = url + f"?{self.key}" if self.key else url
+        resp, status = await self.get(url)
+        if status//100 not in [2, 3]:
+            raise exceptions.opendota.OpendotaError(status, resp)
+        return resp
 
     
     async def fetch_teams_meetings(self, team1: int, team2: int, limit:int=None) -> list[int]:
@@ -327,7 +336,7 @@ class OpendotaWrapper(OpendotaSession):
         SELECT%20%0Amatches.match_id%2C%0Amatches.start_time%2C%0Amatches.radiant_team_id%2C%0Amatches.dire_team_id%0A
         FROM%20matches%0AWHERE%20((RADIANT_TEAM_ID%20%3D%20{team1}%20and%20DIRE_TEAM_ID%20%3D%20{team2})%20or%20(RADIANT_TEAM_ID%20%3D%20{team2}%20and%20DIRE_TEAM_ID%20%3D%20{team1}))%0A
         ORDER%20BY%20matches.start_time%20DESC%0ALIMIT%20{200}"""
-        url = url + f"?{self.key}" if self.key else url
+        url = url + f"&{self.key}" if self.key else url
         games, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise exceptions.opendota.OpendotaError(status, games)
@@ -348,7 +357,7 @@ class OpendotaWrapper(OpendotaSession):
             public_matches.start_time%20%3E%3D%20
             extract(epoch%20from%20timestamp%20%27{date}%27)%0AAND%20
             public_matches.AVG_MMR%20%3E%3D%20{avg_mmr}%0ALIMIT%20{limit}"""
-        url = url + f"?{self.key}" if self.key else url
+        url = url + f"&{self.key}" if self.key else url
         data, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise exceptions.opendota.OpendotaError(status, data)
@@ -363,7 +372,7 @@ class OpendotaWrapper(OpendotaSession):
             FROM%20matches%0AJOIN%20leagues%20using(leagueid)%0A
             WHERE%20matches.start_time%20%3E%3D%20extract(epoch%20from%20timestamp%20%27{date}%27)%0A
             ORDER%20BY%20matches.start_time%20DESC%0ALIMIT%20{limit}"""
-        url = url + f"?{self.key}" if self.key else url
+        url = url + f"&{self.key}" if self.key else url
         data, status = await self.get(url)
         if status//100 not in [2, 3]:
             raise exceptions.opendota.OpendotaError(status, data)
@@ -379,7 +388,7 @@ class OpendotaWrapper(OpendotaSession):
 
 
     async def fetch_leagues(self) -> list[_typing.opendota.League]:
-        url = f"{self.BASE_URL}/leagues/"
+        url = f"{self.BASE_URL}/leagues"
         url = url + f"?{self.key}" if self.key else url
         data, status = await self.get(url)
         if status//100 not in [2, 3]: raise exceptions.opendota.OpendotaError(status, data)
@@ -398,8 +407,8 @@ class OpendotaWrapper(OpendotaSession):
         return [player['account_id'] for player in data if player['is_current_team_member']]
 
 
-class PropertyWrapper(ConfigBase):
-    """Scarpe, parse and prepare data to feed to model
+class PrematchWrapper(ConfigBase):
+    """Scarpe, parse and prepare data to feed to prematch model
 
     Be careful: ConfigBase after load model in inference will output config from train phase"""
 
@@ -417,28 +426,38 @@ class PropertyWrapper(ConfigBase):
         self.evaluator = evaluator.Evaluator()
         self.scaler = scalers.DotaScaler(path=path / scaler_path)
 
+        self.tokenizer_path = path / tokenizer_path
         # //TODO: fix tokenizer, put it together with a model
-        self.tokenizer = tokenizer.Tokenizer(path=path / tokenizer_path)
+        self.tokenizer = tokenizer.Tokenizer(path=self.tokenizer_path)
         # //TODO: put to configs mask_type, y_output and anothers hyper-parameters 
-        self.collector = TSCollector(
-            tokenizer_path=path / tokenizer_path,
-            y_output='crossentropy', 
-            teams_reg_output=False,
-            mask_type='bool', 
-        )
         self.batch_size = 60
 
         client = pymongo.MongoClient("mongodb://localhost:27017/") 
         self.table = client['DotaMatches']['leagueMatches']
-
-        self.window_size = self._get_config('features')['league']['window_size']
         self.loop = asyncio.get_event_loop()
         
     async def log(self, *args):
         message = ''.join(map(str, args))
         print(message)
 
-    async def prematch(self, team1: int|None = None, team2: int|None = None, match_id: int|None = None, league_id: int|None = None, prize_pool: int|None = None) -> dict:
+    async def collect_prematch(self, window_size: int, team1: int|None = None, team2: int|None = None, match_id: int|None = None, league_id: int|None = None, prize_pool: int|None = None) -> tuple[int, int, pd.DataFrame, pd.DataFrame]:
+        """Collect games and returns `corpus`, `anchor`
+        
+        Args:
+            - window_size: int - how many games of both teams should be in `corpus`. You must provide this manualy due ensemble modeling with different configuration, so put there highest window size
+            - team1: int - the first team id, may be `None` if `match_id` provided
+            - team2: int - the second team id, may be `None` if `match_id` provided
+            - match_id: int - the match's id you need to predict, if provided `anchor` will collect from this match, also match that played after this one will not includes in `corpus`
+            - league_id: int - the match's league id, may be `None` if `prize_pool` provided
+            - prize_pool: int - the match's prize pool, may be `None` if `league_id` provided
+
+        Returns:
+            - team1: int - first team id
+            - team2: int - second team id
+            - corpus: pd.DataFrame - dataframe with whole information about upcoming game
+            - anchor: pd.DataFrame - dataframe with previous games both teams
+        """
+
         if match_id is None and (not team1 or not team2): 
             raise Exception("If you not provide match_id you should provide: team1, team2, [ league_id or prize_pool ]")
         assert (team1 is None and team2 is None) or (team1 is not None and team2 is not None), \
@@ -467,13 +486,26 @@ class PropertyWrapper(ConfigBase):
 
         # ----------------------------------------------------------------------------------- #
         await self.log("parse and transform prematch corpus")
-        corpus = await self.prematch_corpus(team1=team1, team2=team2, match_id=match_id)
+        corpus = await self.prematch_corpus(window_size=window_size, team1=team1, team2=team2, match_id=match_id)
         corpus = self.scaler.transform(corpus, 'yeo-johnson', mode='both')
         await self.log("prematch corpus parsed and transformed")
 
+        return team1, team2, corpus, anchor
+
+    async def prepare_prematch(self, team1: int, team2: int, corpus: pd.DataFrame, anchor: pd.DataFrame) -> dict:
+        """Prepare `corpus` and `anchor` to feed to model. 
+
+        !!! Before we call this we should define configs, put it in `utils.base.ConfigBase._configs`
+        """
+        collector = PrematchTSCollector(
+            tokenizer_path=self.tokenizer_path,
+            y_output='crossentropy', 
+            teams_reg_output=False,
+            mask_type='bool', 
+        )
         # ----------------------------------------------------------------------------------- #
         await self.log('collect windows')
-        sample = self.collector.collect_windows(games=corpus, anchor=anchor, tokenize=True)
+        sample = collector.collect_windows(games=corpus, anchor=anchor, tokenize=True)
         await self.log('num of radiant games:', sample['r_window']['seq_len'])
         await self.log('num of dire games:', sample['d_window']['seq_len'])
 
@@ -485,9 +517,6 @@ class PropertyWrapper(ConfigBase):
         if sample['d_window']['seq_len'] < f_config['league']['window_min_size']:
            raise exceptions.property.DireNotEnoughGames(team2)
 
-        # ----------------------------------------------------------------------------------- #
-        self.loop.create_task(self.steam_wrapper.close())
-        self.loop.create_task(self.opendota_wrapper.close())
         return sample
 
     async def collect_players_stack(self, team: int) -> list[int]:
@@ -551,7 +580,7 @@ class PropertyWrapper(ConfigBase):
         anchor['league_prize_pool'] = anchor['league_prize_pool'].map(scalers.vectorize_prize_pool)
         return anchor
 
-    async def prematch_corpus(self, team1: int, team2: int, match_id:int|None=None):
+    async def prematch_corpus(self, window_size:int, team1: int, team2: int, match_id:int|None=None):
         team1_matches, team2_matches = await execute_cor(
             self.opendota_wrapper.fetch_team_games(team1), 
             self.opendota_wrapper.fetch_team_games(team2),
@@ -569,9 +598,9 @@ class PropertyWrapper(ConfigBase):
 
         # ----------------------------------------------------------------------------------- #
         await self.log('parse team1 matches')
-        team1_matches = await self.parse_team_matches(team1_matches)
+        team1_matches = await self.parse_team_matches(window_size, team1_matches)
         await self.log('parse team2 matches')
-        team2_matches = await self.parse_team_matches(team2_matches)
+        team2_matches = await self.parse_team_matches(window_size, team2_matches)
 
         # ----------------------------------------------------------------------------------- #
         await self.log("property_parser")
@@ -583,7 +612,7 @@ class PropertyWrapper(ConfigBase):
         
         return corpus
 
-    async def parse_team_matches(self, matches: _typing.opendota.TeamMatches) -> list[_typing.property.Match]:
+    async def parse_team_matches(self, window_size:int, matches: _typing.opendota.TeamMatches) -> list[_typing.property.Match]:
         team_matches, batch, ids = [], [], set()
         for idx, tmatch in enumerate(matches):
             match_id = tmatch['match_id']
@@ -601,10 +630,10 @@ class PropertyWrapper(ConfigBase):
                 await self.__parse_batch(batch, ids, team_matches)
                 batch = []
 
-            if len(team_matches) >= self.window_size:
+            if len(team_matches) >= window_size:
                 break
             
-        if batch and len(team_matches) < self.window_size: 
+        if batch and len(team_matches) < window_size: 
             await self.__parse_batch(batch, ids, team_matches)
 
         await self.log("done :", len(team_matches))
