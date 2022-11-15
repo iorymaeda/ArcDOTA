@@ -6,7 +6,7 @@ import pandas as pd
 from torch.utils.data import Dataset as D
 
 from ..base import ConfigBase
-from ..time_series import TSCollector
+from ..time_series import PrematchTSCollector
 
 
 class LeagueDataset(ConfigBase, D):
@@ -20,7 +20,7 @@ class LeagueDataset(ConfigBase, D):
             - indexes: pd.Index - corpus indexes with games to output
                 `indexes` <= `corpus`
         """
-        self.collector = TSCollector(mask_type=mask_type, y_output=y_output)
+        self.collector = PrematchTSCollector(mask_type=mask_type, y_output=y_output)
 
         
         self.corpus = corpus
