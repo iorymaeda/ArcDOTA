@@ -1,4 +1,5 @@
-from sympy import EX
+import glob
+
 import torch
 import numpy as np
 import torch.nn as nn
@@ -60,39 +61,42 @@ def batch_to_tensor(batch: dict[str|dict, np.ndarray|dict]) \
         return batch
 
 class ModelLoader(PathBase):
-    #//TODO: move this to nn
     def __init__(self, device:str='cpu'):
         self.device = device
 
     def __get_weights_folder(self):
-        # Project folder
-        # ├── train
-        # │   ├── output
-        # │   │   ├──models_w
-        # │   │   │  ├── prematch
-        # │   │   │  └──...
-        # │   │   └──...
-        # │   └──...
-        # ├── utils
-        # │   ├── development.py
-        # │   └──...
+        """
+        Project folder
+        ├── train
+        │   ├── output
+        │   │   ├──models_w
+        │   │   │  ├── prematch
+        │   │   │  └──...
+        │   │   └──...
+        │   └──...
+        ├── utils
+        │   ├── development.py
+        │   └──...
+        """
         path = self._get_relative_path()
         path = path.parent.resolve() 
         path = path / "train/output/models_w/"
         return path
 
     def __get_inference_weights_folder(self):
-        # Project folder
-        # ├── inference
-        # │   ├── files
-        # │   │   ├── models_w
-        # │   │   │   ├──prematch
-        # │   │   │   └──...
-        # │   │   └──...
-        # │   └──...
-        # ├── utils
-        # │   ├── development.py
-        # │   └──...
+        """
+        Project folder
+        ├── inference
+        │   ├── files
+        │   │   ├── models_w
+        │   │   │   ├──prematch
+        │   │   │   └──...
+        │   │   └──...
+        │   └──...
+        ├── utils
+        │   ├── development.py
+        │   └──...
+        """
         path = self._get_relative_path()
         path = path.parent.resolve()
         path = path / "inference/files/models_w/"
@@ -104,33 +108,29 @@ class ModelLoader(PathBase):
         return path
 
 
-    def load_prematch_ensemble_models(self, name: str, ensemble_nums: list, device:str=None):
+    def load_prematch_ensemble_models(self, device:str=None) -> dict[str, nn.Module]:
         if device is None: device = self.device
 
         path = self.__get_prematch_folder()
+        files = glob.glob(f'{path}/*.torch')
+
         models = {}
-        for idx, num in enumerate(ensemble_nums):
-            checkpoint = torch.load(path / f'Ensemble {num} {name}.torch', map_location=torch.device('cpu'))
-            for config in checkpoint['configs']:
-                
-                if idx == 0:
-                    ConfigBase._configs[config] = checkpoint['configs'][config]
-                else:
-                    assert ConfigBase._configs[config] == checkpoint['configs'][config], 'Something wrong with configs, they are different'
-                
-            
+        for idx, file in enumerate(files):
+            checkpoint = torch.load(file, map_location=torch.device('cpu'))
+            ConfigBase._configs =  checkpoint['configs']
             model = PrematchModel(**checkpoint['kwargs']).eval()
             model.to(device)
+
             try:
                 model.load_state_dict(checkpoint['model'])
             except Exception as e:
                 if 'missing' in str(e).lower():
                     raise Exception(e)
+                else:
+                    print("Unexcepted w., load without strict")
+                    model.load_state_dict(checkpoint['model'], strict=False)
 
-                print("Unexcepted w., load without strict")
-                model.load_state_dict(checkpoint['model'], strict=False)
-
-            models[num] = model
+            models[checkpoint['model_tag']] = model
         return models
 
 # def no_dropout(x): return x
