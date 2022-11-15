@@ -2,7 +2,7 @@
 
 This folder contains various configs
 
-## Notes
-
-* `_typing` folder contains configs models
-* configs must be `.yaml` not `.yml`
+1. features.yaml - features that will be used in models
+2. match.yaml - configuration to purge dataset
+3. model.yaml - models architectures
+4. train.yaml - model's train configuration
