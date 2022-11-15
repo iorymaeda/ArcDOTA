@@ -4,28 +4,16 @@ import time
 import torch
 import torch.nn as nn
 
-from .modules import LayerNorm, TransformerEncoder, Callable, RNN, TransformerEncoder, SparseConnectedLayer, SeqMasking, SeqPermutation
+from .modules import LayerNorm, TransformerEncoder, Callable, RNN, TransformerEncoder, SparseConnectedLayer, SeqMasking, SeqPermutation, Embedding
 from ..base import ConfigBase
 from .._typing.property import FEATURES
 
 
 # ----------------------------------------------------------------------------------------------- #
 # Initialization
-def reset_parameters(self) -> None:
-    # Setting a=sqrt(5) in kaiming_uniform is the same as initializing with
-    # uniform(-1/sqrt(in_features), 1/sqrt(in_features)). For details, see
-    # https://github.com/pytorch/pytorch/issues/57109
-    nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-    if self.bias is not None:
-        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-        bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
-        nn.init.uniform_(self.bias, -bound, bound)
-
 def set_init(func):
     nn.Linear.reset_parameters = func
     SparseConnectedLayer.reset_parameters = func
-
-set_init(reset_parameters)
 
 # ----------------------------------------------------------------------------------------------- #
 # Prematch blocks
@@ -67,20 +55,6 @@ class StatsEncoder(nn.Module):
 
         return output
 
-class ResultEncoder(nn.Module):
-    def __init__(self, embed_dim):
-        super(ResultEncoder, self).__init__()
-        self.embeddings = nn.Embedding(2, embed_dim)
-
-    def forward(self, inputs: torch.IntTensor | torch. FloatTensor) -> torch.Tensor:
-        # |inputs| : (batch_size, seq_len)
-        if inputs.dtype is torch.int64:
-            outputs = self.embeddings(inputs)
-            # |outputs| : (batch_size, seq_len, embed_dim)
-            return outputs
-
-        else: raise NotImplementedError
-
 class WindowGamesFeatureEncoder(ConfigBase, nn.Module):
     def __init__(self):
         super(WindowGamesFeatureEncoder, self).__init__()
@@ -95,7 +69,11 @@ class WindowGamesFeatureEncoder(ConfigBase, nn.Module):
         if self.models_config['pos_encoding']:
             self.pos_embedding = nn.Embedding(self.features_config['window_size']+1, self.models_config['embed_dim'])
 
-        self.resultEncoder = ResultEncoder(self.models_config['embed_dim'])
+        self.resultEncoder = Embedding(
+            num_embeddings=2,
+            embedding_dim=self.models_config['embed_dim'], 
+            **self.models_config['resultEncoder']
+        )
 
     def forward(self, inputs: dict) -> torch.Tensor:
         """Preprocces and encode input data
@@ -251,13 +229,13 @@ class WindowSeqEncoder(ConfigBase, nn.Module):
 
         return pooled
 
-
 class OutputHead(ConfigBase, nn.Module):
     def __init__(self, in_dim:int, regression:bool):
         super().__init__()
         self.emb_storage = {}
         self.regression = regression
         self.model_config: dict = self._get_config('models')['prematch']
+        self.temperature = self.model_config['compare_encoder']['temperature']
 
         if self.model_config['compare_encoder_type'] == 'transformer':
             conf = self.model_config['compare_encoder']['transformer']
@@ -276,10 +254,10 @@ class OutputHead(ConfigBase, nn.Module):
                 **conf)
 
         elif self.model_config['compare_encoder_type'] == 'linear':
-            assert not regression, 'regression only for transformer'
             conf = self.model_config['compare_encoder']['linear']
+            assert not regression, 'regression only for transformer'
+            assert conf['norm'] in ['batch', 'layer', 'none', None]
 
-            assert conf['norm'] in ['batch', 'layer', None]
             if conf['norm'] == 'batch':
                 norm = nn.BatchNorm1d
             elif conf['norm'] == 'layer':
@@ -318,7 +296,6 @@ class OutputHead(ConfigBase, nn.Module):
         
         else: raise Exception
 
-
     def forward(self, radiant: torch.Tensor, dire: torch.Tensor):
         # | radiant, dire| : (batch_size, in_dim)
         radiant, dire = self.in_fnn(radiant), self.in_fnn(dire)
@@ -339,7 +316,7 @@ class OutputHead(ConfigBase, nn.Module):
 
             if self.regression:
                 compare: torch.Tensor = self.compare(cat)
-                self.emb_storage['compared'] = compare.detach()
+                self.emb_storage['compared'] = compare
 
                 compare = self.out_fnn(compare)
                 # |compare| : (batch_size, 2, len(FEATURES))
@@ -356,7 +333,7 @@ class OutputHead(ConfigBase, nn.Module):
                 # index 1 - radiant
                 compare = compare.squeeze(2)
                 # |compare| : (batch_size, 2)
-                return compare
+                return compare / self.temperature
 
         elif self.model_config['compare_encoder_type'] == 'linear':
             cat = torch.cat([radiant, dire], dim=1)
@@ -364,7 +341,7 @@ class OutputHead(ConfigBase, nn.Module):
             compare = self.compare_fnn(cat)
             self.emb_storage['compared'] = compare
             # | compare | : (batch_size, 1/2)
-            return compare
+            return compare / self.temperature
 
         elif self.model_config['compare_encoder_type'] == 'subtract':
             compare = self.compare_fnn(radiant - dire)
@@ -372,7 +349,7 @@ class OutputHead(ConfigBase, nn.Module):
             # | compare | : (batch_size, 1)
             compare = torch.cat([compare, -compare], dim=1)
             # | compare | : (batch_size, 2)
-            return compare
+            return compare / self.temperature
 
     def __generate_pos_tokens(self, inputs: torch.Tensor) -> torch.Tensor:
         return torch.arange(inputs.size(1), device=inputs.device, dtype=torch.int64).repeat(inputs.size(0), 1)
