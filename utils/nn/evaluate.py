@@ -374,14 +374,12 @@ def gambling_charts(DF: pd.DataFrame):
     
     my_play = BookEvaluator.against_book_curve(DF)
     book_play = BookEvaluator.against_me_curve(DF)
-    b_curve, m_curve = BookEvaluator.comparison_curve(DF)
-    bank1, bank2 = BookEvaluator.profit_curves(DF)
-    
+        
     bank_df = pd.DataFrame()
     for idx, cf in enumerate([0.05, 0.1, 0.15]):
-        bank1, bank2 = BookEvaluator.profit_curves(DF, cf)
-        bank1_df = BookEvaluator.smooth_values(bank1)
-        bank2_df = BookEvaluator.smooth_values(bank2)
+        _bank1, _bank2 = BookEvaluator.profit_curves(DF, cf)
+        bank1_df = BookEvaluator.smooth_values(_bank1)
+        bank2_df = BookEvaluator.smooth_values(_bank2)
         bank1_df['bank'] = 'current'
         bank2_df['bank'] = 'max'
         bank1_df['cf'] = cf
@@ -399,13 +397,13 @@ def gambling_charts(DF: pd.DataFrame):
     ax1.axhline(0, color='black', alpha=0.5)
     
     # ---------------------------------------------------------------------- #
+    b_curve, m_curve = BookEvaluator.comparison_curve(DF)
     ax0.plot(np.array(m_curve)-np.array(b_curve), c=me, linewidth=linewidth)
     ax0.tick_params(labelsize=labelsize)
     ax0.set_title('Comparison of forecasts', fontsize=fontsize)
     ax0.set_ylabel('Score', fontsize=fontsize)
     ax0.set_xlabel('Games', fontsize=fontsize)
     
-    # ---------------------------------------------------------------------- #
     ax2.plot(m_curve, c=me, linewidth=linewidth)
     ax2.plot(b_curve, c=bk, linewidth=linewidth)
     ax2.tick_params(labelsize=labelsize)
@@ -449,6 +447,7 @@ def gambling_charts(DF: pd.DataFrame):
     ax4.set_ylabel('Bank profit (in %)', fontsize=fontsize)
     
     # ---------------------------------------------------------------------- #
+    bank1, bank2 = BookEvaluator.profit_curves(DF)
     bank1_df = BookEvaluator.smooth_values(bank1)
     bank2_df = BookEvaluator.smooth_values(bank2)
     bank1_df['bank'], bank2_df['bank'] = 1, 2
@@ -470,9 +469,13 @@ def gambling_charts(DF: pd.DataFrame):
     ax3.set_ylabel('Bank profit (in %)', fontsize=fontsize)
     ax3.legend(['Bets by current bank', 'Bets by max bank'], fontsize=fontsize)
     plt.show()
+    return fig
 
-def compression_charts(dfM, dfB, evaluator):
-    """Comprassion against bookmaker prediction"""
+def compression_charts(dfM, dfB, evaluator, fontsize=14):
+    """Comprassion against bookmaker prediction
+    dfM: pd.DataFrame with raw prediction
+    dfB: pd.DataFrame with prediction on odds corpus
+    """
     n0, legend = evaluator.metric_ts(df=dfM, stride=8)
     n1, legend = evaluator.metric_ts(stride=8)
     n2, legend = evaluator.metric_ts(stride=8, book=True)
@@ -480,28 +483,79 @@ def compression_charts(dfM, dfB, evaluator):
     fig, axes = plt.subplot_mosaic([['A', 'E'], 
                                     ['B', 'E'], 
                                     ['C', 'F'], 
-                                    ['D', 'F']], figsize=(32, 16)) 
+                                    ['C', 'F']], figsize=(32, 16)) 
     #plt.subplot_mosaic("AABB;.DD.", figsize=(24, 8))
 
-    axes['A'].plot(n0)
-    axes['A'].set_title('My, whole corpus', fontsize=14)
+    # ---------------------------------------------- #
+    # Metrics over time
+    axes['A'].plot(n1)
+    axes['A'].set_title('My metrics over time', fontsize=fontsize)
 
-    axes['B'].plot(n1)
-    axes['B'].set_title('My, odds corpus', fontsize=14)
+    axes['B'].plot(n2)
+    axes['B'].set_title('Bookmaker metrics over time', fontsize=fontsize)
+    fig.legend(legend, fontsize=int(fontsize*1.1), loc='center')
 
+    # ---------------------------------------------- #
+    # Bet simulation
 
-    axes['C'].plot(n2)
-    axes['C'].set_title('Book', fontsize=14)
+    # Try different params
+    bank_df = pd.DataFrame()
+    for idx, cf in enumerate([0.05, 0.1, 0.15]):
+        _bank1, _bank2 = BookEvaluator.profit_curves(dfB, cf)
+        bank1_df = BookEvaluator.smooth_values(_bank1)
+        bank2_df = BookEvaluator.smooth_values(_bank2)
+        bank1_df['bank'] = 'current'
+        bank2_df['bank'] = 'max'
+        bank1_df['cf'] = cf
+        bank2_df['cf'] = cf
+        bank_df = pd.concat([bank_df, bank1_df, bank2_df])
+    bank_df['value'] = bank_df['value']
+    bank_df.reset_index(inplace=True)
+    
+    palette = sns.color_palette("flare", as_cmap=True)
+    sns.lineplot(
+        data=bank_df, x="timepoint", y="value", hue="cf", 
+        style="bank", palette=palette, ax=axes['C'])
+    [t.set_fontsize(fontsize) for t in axes['C'].legend_.texts]
+    axes['C'].set_title("Bets simulation with different cf", fontsize=fontsize)
+    axes['C'].axhline(100, color='black', alpha=0.5)
+    axes['C'].set_xlabel('Games', fontsize=fontsize)
+    axes['C'].set_ylabel('Bank profit (in %)', fontsize=fontsize)
 
+    max_ = bank_df['value'].max()
+    min_ = bank_df['value'].min()
+    range_ = max_ - min_
+    major_ticks = np.arange(min_, max_+1e-6, range_/16)
+    minor_ticks = np.arange(min_, max_+1e-6, range_/8)
+    axes['C'].set_yticks(major_ticks)
+    axes['C'].set_yticks(minor_ticks, minor=True)
 
-    axes['D'].plot(n1-n2)
-    axes['D'].set_title('My - Book', fontsize=15)
-    fig.legend(legend, fontsize=15, loc='center')
+    # ---------------------------------------------------------------------- #
+    # bank1, bank2 = BookEvaluator.profit_curves(dfM)
+    # bank1_df = BookEvaluator.smooth_values(bank1)
+    # bank2_df = BookEvaluator.smooth_values(bank2)
+    # bank1_df['bank'] = 'Bets by current bank'
+    # bank2_df['bank'] = 'Bets by max bank'
+    # bank_df = pd.concat([bank1_df, bank2_df]).reset_index()
+    
+    # palette = sns.color_palette("flare", as_cmap=True)
+    # sns.lineplot(
+    #     data=bank_df, x="timepoint", y="value", hue="bank",
+    #     alpha=0.8, palette=palette, ax=axes['D'])
+    # [t.set_fontsize(fontsize) for t in axes['D'].legend_.texts]
+    # axes['D'].tick_params(labelsize=int(fontsize*0.8))
+    # axes['D'].set_title("Bets simulation", fontsize=fontsize)
+    # axes['D'].set_xlabel('Games', fontsize=fontsize)
+    # axes['D'].set_ylabel('Bank profit (in %)', fontsize=fontsize)
+    # plt.show()
 
-    evaluator.calibration_curve(df=dfM, ax=axes['E'])
-    axes['E'].set_title('Calibration curve My', fontsize=14)
+    # ---------------------------------------------- #
+    # Calibration curves
+    evaluator.calibration_curve(df=dfB, ax=axes['E'])
+    axes['E'].set_title('Calibration curve My', fontsize=fontsize)
     axes['E'].set_xlabel('')
 
     evaluator.calibration_curve(df=dfB, ax=axes['F'], book=True)
-    axes['F'].set_title('Calibration curve Book', fontsize=14)
+    axes['F'].set_title('Calibration curve Book', fontsize=fontsize)
+    return fig
 
