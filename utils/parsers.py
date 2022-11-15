@@ -570,8 +570,5 @@ class PropertyParser(DotaconstantsBase):
             # ----------------------------------------------------------- #
             new_rows.append(c)
 
-        df = pd.concat(
-            objs=[df.drop(['league', 'players', 'teams'], axis=1),  pd.DataFrame(new_rows)], 
-            axis=1
-        ).sort_values(by='start_time').drop_duplicates('match_id')
+        df = pd.concat(objs=[df.drop(['league', 'players', 'teams'], axis=1),  pd.DataFrame(new_rows)], axis=1)
         return df
