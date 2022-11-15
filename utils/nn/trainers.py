@@ -12,8 +12,8 @@ from ..base import ConfigBase
 from .tools import to_device
 
 
-class BaseTrainer(ConfigBase):
-    model: nn.Module
+class BaseTrainer:
+    model: nn.Module | list[nn.Module]
     optimizer: torch.optim.Optimizer
     sheduler: torch.optim.lr_scheduler._LRScheduler | None
     device: str
@@ -32,18 +32,32 @@ class BaseTrainer(ConfigBase):
         self.grad_clip_value = grad_clip_value
 
     @torch.no_grad()
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        self.model.eval()
-        self.model.to(self.device)
+    def forward(self, x: torch.Tensor|dict[str, torch.Tensor]|list[torch.Tensor]) -> torch.Tensor:
+        """forward `x` over model/models
 
-        x = to_device(x, self.device)
-        pred: torch.Tensor = self.model(x)
-        return pred.cpu()
+        returns `torch.Tensor` of shape: (num_of_models, batch_size, output_dimension)
+        """
+        if isinstance(self.model, list):
+            models = [model for model in self.model]
+        else:
+            models = [self.model]
+
+        preds = []
+        for model in models:
+            x = to_device(x, self.device)
+            pred: torch.Tensor = model(x)
+            preds.append(pred)
+
+        pred = torch.stack(preds)
+        # |pred| : (num_of_models, batch_size, output_dimension)
+        return pred
 
     @torch.no_grad()
     def predict(self, dataloader: DataLoader) -> list[torch.Tensor, torch.Tensor]:
-        self.model.eval()
-        self.model.to(self.device)
+        if isinstance(self.model, list):
+            self.model = [model.eval().to(self.device) for model in self.model]
+        else:
+            self.model.eval().to(self.device)
 
         _pred, _true = [], []
         for batch in dataloader:
@@ -55,37 +69,44 @@ class BaseTrainer(ConfigBase):
             else:
                 raise Exception
 
-            pred: torch.Tensor = self.model(x)
-            _pred.append(pred.cpu())
-            _true.append(y.cpu())
-
-        return torch.cat(_pred), torch.cat(_true)
+            pred = self.forward(x).mean(0)
+            _pred.append(pred)
+            _true.append(y)
+        
+        pred = torch.cat(_pred).cpu()
+        true = torch.cat(_true).cpu()
+        return pred, true
     
     @torch.no_grad()
     def evaluate(self):
         raise NotImplementedError
 
-    def checkpoint(self) -> dict:
-        return {
-            "model": self.model.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
-            "configs": {
-                "features": self._get_config("features"),
-                "match": self._get_config("match"),
-                "models": self._get_config("models"),
-                "train": self._get_config("train")
+    def checkpoint(self) -> dict | list[dict]:
+        if isinstance(self.model, list):
+            checkpoints = [{
+                "model": model.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "configs": model.configs,
+                } for model in self.model]
+            return checkpoints
+        else:
+            return {
+                "model": self.model.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "configs": self.model.configs,
             }
-        }
 
     def train_epoch(self, dataloader: DataLoader) -> dict:
-        self.model.train()
-        self.model.to(self.device)
+        if isinstance(self.model, list):
+            self.model = [model.train().to(self.device) for model in self.model]
+        else:
+            self.model.train().to(self.device)
+
         self.optimizer.zero_grad()
 
         step_idx = None
         running_losses = {}
         for batch_idx, batch in enumerate(dataloader):
-            batch = to_device(batch, self.device)
             _running_losses = self.train_step(batch)
 
             if (batch_idx == 0 ):
@@ -111,37 +132,51 @@ class BaseTrainer(ConfigBase):
         return running_losses
 
     def train_step(self, *args, **kwargs) -> dict:
+        batch = to_device(batch, self.device)
         raise NotImplementedError
 
     def update_gradients(self):
-        if self.grad_clip_norm > 0:
-            torch.nn.utils.clip_grad_norm_(
-                self.model.parameters(), 
-                max_norm=self.grad_clip_norm, 
-                error_if_nonfinite=False
-            )
-        if self.grad_clip_value > 0:
-            torch.nn.utils.clip_grad_value_(
-                self.model.parameters(), 
-                clip_value=self.grad_clip_value, 
-            )
+        if isinstance(self.model, list):
+            models = [model for model in self.model]
+        else:
+            models = [self.model]
+
+        for model in models:
+            if self.grad_clip_norm > 0:
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), 
+                    max_norm=self.grad_clip_norm, 
+                    error_if_nonfinite=False
+                )
+            if self.grad_clip_value > 0:
+                torch.nn.utils.clip_grad_value_(
+                    model.parameters(), 
+                    clip_value=self.grad_clip_value, 
+                )
         self.optimizer.step()
         self.optimizer.zero_grad()
 
 
-class SupervisedClassification(BaseTrainer):
+class SupervisedClassificationTrainer(BaseTrainer):
     metrics_type = None | torchmetrics.Metric | list[torchmetrics.Metric] | dict[str, torchmetrics.Metric]
 
     def __init__(self, 
-        model: PrematchModel, loss_fn: nn.Module, optimizer: nn.Module, 
+        model: PrematchModel | list[PrematchModel], loss_fn: nn.Module, optimizer: nn.Module, 
         sheduler=None, metrics=None, device='cuda', sample_weight=False, r_drop:float=0, 
         c_reg:str|list[str]='none', c_reg_distance:str='cos', c_reg_a:float=0, c_reg_e:int=0, c_reg_detach:bool=False, 
+        backward_second_output: bool = False,
         **kwargs):
         super().__init__(**kwargs)
         assert loss_fn.reduction == 'none'
         assert c_reg_distance in ['cos', 'mse', 'mae']
 
-        self.model: PrematchModel = model.to(device)
+        if isinstance(model, list):
+            self.model = [m.to(device) for m in model]
+            self.mode = 'ensemble'
+        else:    
+            self.model: PrematchModel = model.to(device)
+            self.mode = 'normal'
+
         self.device = device
         self.metrics = metrics
         self.metrics = to_device(self.metrics, device)
@@ -157,10 +192,17 @@ class SupervisedClassification(BaseTrainer):
         self.c_reg_e = c_reg_e
         self.c_reg_detach = c_reg_detach
         self.c_reg_distance = c_reg_distance
+        self.backward_second_output = backward_second_output
         if self.c_reg != 'none' and not isinstance(self.c_reg, list):
             self.c_reg = [self.c_reg]
 
+        self.сontrastive_condition =  self.c_reg != 'none' and self.c_reg and self.c_reg_a > 0
+        if (not self.сontrastive_condition and self.r_drop == 0) and backward_second_output:
+            print(r'Warning: We can not do backward pass on second output, cause we have only one output from the model (use сontrastive regulation or r_drop). So we will forward batch from model/models twice')
+
     def train_step(self, batch: dict[str, torch.Tensor] | list[torch.Tensor, torch.Tensor]) -> dict:
+        batch = to_device(batch, self.device)
+
         if isinstance(batch, dict):
             x, y = batch, batch['y']
         elif isinstance(batch, list):
@@ -170,37 +212,58 @@ class SupervisedClassification(BaseTrainer):
 
         forward_time = time.time()
 
-        outputs: torch.Tensor = self.model(x)
-        outputs2: torch.Tensor = None
+        if self.mode == 'normal':
+            outputs: torch.Tensor = self.model(x)
+            outputs2: list[torch.Tensor] = []
+        elif self.mode == 'ensemble':
+            outputs: list[torch.Tensor] = [m(x) for m in self.model]
+            outputs: torch.Tensor = torch.stack(outputs).mean(dim=0)
+            outputs2: list[torch.Tensor] = []
+        else:
+            raise Exception(f"Unexcepted train mode: {self.mode}")
 
         # Contrastive regularazation
         contrastive_loss = torch.tensor(0, dtype=outputs.dtype, device=outputs.device)
-        if self.c_reg != 'none' and self.c_reg and self.c_reg_a > 0 and self.epoch >= self.c_reg_e:
-            embs1 = [self.model.emb_storage[emb_name]  for emb_name in self.c_reg]
-            outputs2: torch.Tensor = self.model(x)
+        if self.сontrastive_condition and self.epoch >= self.c_reg_e:
+            if self.mode == 'normal':
+                models = [self.model]
+            elif self.mode == 'ensemble':
+                models = self.model
 
-            embs2 = []
-            for emb_name in self.c_reg:
-                _emb: torch.Tensor = self.model.emb_storage[emb_name]
-                embs2.append(_emb.detach() if self.c_reg_detach else _emb)
+            for model in models:
+                model: PrematchModel
+                embs1 = [model.emb_storage[emb_name] for emb_name in self.c_reg]
+                outputs2 += [model(x)]
 
-            for idx, (emb1, emb2) in enumerate(zip(embs1, embs2)):
-                if self.c_reg_distance == 'cos':
-                    cos_sim = 1 - F.cosine_similarity(emb1, emb2, dim=-1)
-                    cos_sim = cos_sim.mean()
-                    contrastive_loss += cos_sim
+                embs2 = []
+                for emb_name in self.c_reg:
+                    _emb: torch.Tensor = model.emb_storage[emb_name]
+                    embs2.append(_emb.detach() if self.c_reg_detach else _emb)
 
-                if self.c_reg_distance == 'mse':
-                    contrastive_loss += F.mse_loss(emb1, emb2, reduction='mean')
+                cl = torch.tensor(0, dtype=outputs.dtype, device=outputs.device)
+                for idx, (emb1, emb2) in enumerate(zip(embs1, embs2)):
+                    if self.c_reg_distance == 'cos':
+                        cos_sim = 1 - F.cosine_similarity(emb1, emb2, dim=-1)
+                        cos_sim = cos_sim.mean()
+                        cl += cos_sim
 
-                if self.c_reg_distance == 'mae':
-                    contrastive_loss += F.l1_loss(emb1, emb2, reduction='mean')
+                    if self.c_reg_distance == 'mse':
+                        cl += F.mse_loss(emb1, emb2, reduction='mean')
 
-            contrastive_loss /= (idx + 1)
+                    if self.c_reg_distance == 'mae':
+                        cl += F.l1_loss(emb1, emb2, reduction='mean')
+
+                cl /= (idx + 1)
+                contrastive_loss += cl
+
+            contrastive_loss /= len(models)
             contrastive_loss *= self.c_reg_a
+            outputs2: torch.Tensor = torch.stack(outputs2).mean(dim=0)
 
-        elif self.r_drop > 0:
-            outputs2: torch.Tensor = self.model(x)
+        # We need second outputs from NN if we don't have one
+        elif (self.r_drop > 0 or self.backward_second_output) and type(outputs2) is list:
+            outputs2: list[torch.Tensor] = [m(x) for m in self.model]
+            outputs2: torch.Tensor = torch.stack(outputs2).mean(dim=0)
 
         # CrossEntropy
         if isinstance(self.loss_fn, nn.BCEWithLogitsLoss):
@@ -212,10 +275,8 @@ class SupervisedClassification(BaseTrainer):
 
             loss: torch.Tensor = self.loss_fn(outputs, y)
             outputs = outputs.sigmoid()
-
-            if outputs2 is not None:
-                loss += self.loss_fn(outputs, y)
-                loss /= 2
+            if self.backward_second_output:
+                loss = (loss + self.loss_fn(outputs2, y)) / 2
                 outputs2 = outputs2.sigmoid()
 
         elif isinstance(self.loss_fn, nn.CrossEntropyLoss):
@@ -224,15 +285,20 @@ class SupervisedClassification(BaseTrainer):
                 # |y| : (Batch, Num_clases)
                 outputs = outputs.softmax(dim=1)
                 loss: torch.Tensor = self.loss_fn(outputs, y)
+                if self.backward_second_output:
+                    outputs2 = outputs2.softmax(dim=1)
+                    loss = (loss + self.loss_fn(outputs2, y)) / 2
+                    
             elif len(y.shape) == 1:
                 # |y| : (Batch)
                 loss: torch.Tensor = self.loss_fn(outputs, y)
                 outputs = outputs.softmax(dim=1)
+                if self.backward_second_output:
+                    loss = (loss + self.loss_fn(outputs2, y)) / 2
+                    outputs2 = outputs2.softmax(dim=1)
+
             else:
                 raise Exception(f"bad Y shape: {y.shape}")
-
-            if outputs2 is not None:
-                outputs2 = outputs2.softmax(dim=1)
 
         else:
             raise Exception("Uncorrect LossFN")
@@ -244,18 +310,15 @@ class SupervisedClassification(BaseTrainer):
         # R-drop
         r_drop_loss = torch.tensor(0, dtype=outputs.dtype, device=outputs.device)
         if self.r_drop > 0:
-            r_drop_loss = self.r_drop * self.compute_kl_loss(outputs, outputs2)
+            r_drop_loss += self.compute_kl_loss(outputs, outputs2)
 
         loss = loss.mean()
-        loss = loss + contrastive_loss + r_drop_loss
+        loss = loss + contrastive_loss*self.c_reg_a + r_drop_loss*self.r_drop
         forward_time = time.time() - forward_time
 
         backward_time = time.time()
         loss.backward()
         backward_time = time.time() - backward_time
-
-        # print(f"{forward_time=}, {backward_time=}")
-
         with torch.no_grad():
             if isinstance(self.metrics, torchmetrics.Metric):
                 self.metrics(outputs, y)
@@ -273,16 +336,28 @@ class SupervisedClassification(BaseTrainer):
             'LogLoss': loss.item(),
             'ContrastiveLoss': contrastive_loss.item(),
             'RDrop': r_drop_loss.item(),
+            'forward_time': forward_time,
+            'backward_time': backward_time,
         }
-    
+
     @torch.no_grad()
     def predict(self, dataloader: DataLoader) -> list[torch.Tensor, torch.Tensor]:
         y_pred, y_true = super().predict(dataloader=dataloader)
         if isinstance(self.loss_fn, nn.BCEWithLogitsLoss):
             y_pred = y_pred.sigmoid()
-
+            
         elif isinstance(self.loss_fn, nn.CrossEntropyLoss):
             y_pred = y_pred.softmax(dim=1)
+
+        if y_pred.ndim == 2 and y_pred.size(1) == 1:
+            y_pred = y_pred[:, 0]
+        elif y_pred.ndim == 2 and y_pred.size(1) == 2:
+            y_pred = y_pred[:, 1]
+
+        if y_true.ndim == 2 and y_true.size(1) == 1:
+            y_true = y_true[:, 0]
+        elif y_true.ndim == 2 and y_true.size(1) == 2:
+            y_true = y_true[:, 1]
 
         return y_pred, y_true
 
@@ -290,7 +365,7 @@ class SupervisedClassification(BaseTrainer):
     def evaluate(self, dataloader: DataLoader):
         y_pred, y_true = self.predict(dataloader=dataloader)
         metrics = self.compute_metrics(y_pred, y_true)
-        return metrics
+        return metrics, y_pred, y_true
 
     @staticmethod
     @torch.no_grad()
@@ -313,3 +388,67 @@ class SupervisedClassification(BaseTrainer):
         q_loss = F.kl_div(torch.log(q + 1e-3), torch.log(p + 1e-3), reduction='mean', log_target=True)
         loss = (p_loss + q_loss) / 2
         return loss
+
+
+class PrematchTrainer(SupervisedClassificationTrainer):
+    @torch.no_grad()
+    def _predict(self, dataloader: DataLoader) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if isinstance(self.model, list):
+            self.model = [model.eval().to(self.device) for model in self.model]
+        else:
+            self.model.eval()
+            self.model.to(self.device)
+
+        _match_ids, _pred, _true = [], [], []
+        for batch in dataloader:
+            batch = to_device(batch, self.device)
+            if isinstance(batch, dict):
+                x, y, mid = batch, batch['y'], batch['match_id']
+            elif isinstance(batch, list):
+                x, y = batch
+                mid = x['match_id']
+            else:
+                raise Exception
+
+            pred = self.forward(x)
+            _match_ids.append(mid)
+            _pred.append(pred)
+            _true.append(y)
+
+        match_ids = torch.cat(_match_ids).cpu()
+        pred = torch.cat(_pred, dim=1).cpu()
+        true = torch.cat(_true).cpu()
+        return match_ids, pred, true
+
+    @torch.no_grad()
+    def predict(self, dataloader: DataLoader) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        match_ids, y_pred, y_true = self._predict(dataloader=dataloader)
+        y_pred = y_pred.mean(dim=0)
+
+        if isinstance(self.loss_fn, nn.BCEWithLogitsLoss):
+            y_pred = y_pred.sigmoid()
+            
+        elif isinstance(self.loss_fn, nn.CrossEntropyLoss):
+            y_pred = y_pred.softmax(dim=1)
+
+        if y_pred.ndim == 2 and y_pred.size(1) == 1:
+            y_pred = y_pred[:, 0]
+        elif y_pred.ndim == 2 and y_pred.size(1) == 2:
+            y_pred = y_pred[:, 1]
+
+        if y_true.ndim == 2 and y_true.size(1) == 1:
+            y_true = y_true[:, 0]
+        elif y_true.ndim == 2 and y_true.size(1) == 2:
+            y_true = y_true[:, 1]
+
+        if match_ids.ndim == 2:
+            match_ids = match_ids[:, 0]
+            
+        return match_ids, y_pred, y_true
+
+    @torch.no_grad()
+    def evaluate(self, dataloader: DataLoader) -> tuple[dict, torch.Tensor, torch.Tensor, torch.Tensor]:
+        match_ids, y_pred, y_true = self.predict(dataloader=dataloader)
+        metrics = self.compute_metrics(y_pred, y_true)
+        return metrics, match_ids, y_pred, y_true
+
