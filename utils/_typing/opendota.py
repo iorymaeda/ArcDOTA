@@ -115,3 +115,14 @@ class TeamPlayers(D):
     games_played: int
     wins: int
     is_current_team_member: bool
+
+
+class Team(D):
+    team_id: int
+    rating: float
+    wins: int
+    losses: int
+    last_match_time: int
+    name: str
+    tag: str
+    logo_url: str
