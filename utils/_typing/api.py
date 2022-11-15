@@ -9,6 +9,7 @@ class OOD(B):
     
 class Prematch(B):
     outcome: float
+    model_tags: list[str]
     response_time: float
     OOD_method_value: list[OOD]
 
