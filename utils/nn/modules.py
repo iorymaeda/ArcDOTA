@@ -202,6 +202,28 @@ def apply_atcivation(f:str, x:torch.Tensor):
 def layer_norm(x: torch.Tensor):
     return F.layer_norm(x, x.shape[-1])
 
+class Embedding(nn.Module):
+    def __init__(self, num_embeddings, embedding_dim, dropout:float=0., init:str='none', init_kwargs:dict={}, max_norm:float=None):
+        super(Embedding, self).__init__()
+        assert init in ['none', 'kaiming_uniform', 'uniform']
+
+        self.embeddings = nn.Embedding(num_embeddings, embedding_dim, max_norm=max_norm)
+        self.dropout = nn.Dropout(dropout)
+        if init == 'kaiming_uniform':
+            nn.init.kaiming_uniform_(self.embeddings.weight, **init_kwargs)
+        if init == 'uniform':
+            nn.init.uniform_(self.embeddings.weight, **init_kwargs)
+
+    def forward(self, inputs: torch.IntTensor | torch. FloatTensor) -> torch.Tensor:
+        # |inputs| : (*)
+        if inputs.dtype is torch.int64:
+            outputs = self.embeddings(inputs)
+            outputs = self.dropout(outputs)
+            # |outputs| : (*, H), where H - embedding_dim
+            return outputs
+
+        else: raise NotImplementedError
+        
 # ----------------------------------------------------------------------------------------------- #
 # Cells
 class LSTMFrame(nn.Module):
@@ -729,7 +751,7 @@ class WRNN(nn.Module):
     RNNs = {'GRU': GRU, 'LSTM': LSTM, 'LSTMN': LayerNormLSTM, 'IRNN': IRNN}
 
     def __init__(self, rnn_type, input_size, hidden_size, num_layers, 
-        activation='linear', norm='batch', batch_first=True, 
+        activation='linear', norm='batch', prenorm=False, batch_first=True, 
         dropout=0, dropouti=0, dropouth=0, wdrop=0, 
         zoneout_prob=0, zoneout_layernorm=False, 
         seq_permutation:dict=None, seq_masking:dict=None, **kwargs):
@@ -766,7 +788,7 @@ class WRNN(nn.Module):
                     hidden_size=hidden_size, 
                     batch_first=batch_first, 
                     activation='linear',
-                    dropout=dropout,
+                    dropout=dropout if rnn_type == 'IRNN' else 0,
                     num_layers=1, 
                     **kwargs
                     )
@@ -792,6 +814,8 @@ class WRNN(nn.Module):
         self.batch_first = batch_first
         self.zoneout_prob = zoneout_prob
         self.activation = activation
+        self.prenorm = prenorm
+        self.norm = norm
 
     def reset(self):
         return 
@@ -810,34 +834,55 @@ class WRNN(nn.Module):
         new_hidden = []
         for layer in self.rnns:
             if isinstance(layer, nn.BatchNorm1d):
-                raw_output = layer(raw_output.transpose(1, 2))
-                raw_output = raw_output.transpose(1, 2)
+                if self.prenorm:
+                    raw_output = layer(raw_output.transpose(1, 2))
+                    raw_output = raw_output.transpose(1, 2)
+                    raw_output = apply_atcivation(self.activation, raw_output)
+                else:
+                    raw_output = apply_atcivation(self.activation, raw_output)
+                    raw_output = layer(raw_output.transpose(1, 2))
+                    raw_output = raw_output.transpose(1, 2)
+
             elif isinstance(layer, nn.LayerNorm):
-                raw_output = layer(raw_output)
+                if self.prenorm:
+                    raw_output = layer(raw_output)
+                    raw_output = apply_atcivation(self.activation, raw_output)
+                else:
+                    raw_output = apply_atcivation(self.activation, raw_output)
+                    raw_output = layer(raw_output)
+                    
             elif isinstance(layer, (SeqPermutation, SeqMasking)):
                 raw_output = layer(raw_output)
             else:
                 if self.rnn_type == 'IRNN':
                     raw_output = layer(raw_output, hidden[n])
                     raw_output = self.lockdrop(raw_output, self.dropouth)
-                    raw_output = apply_atcivation(self.activation, raw_output)
+                    if self.norm == 'linear':
+                        raw_output = apply_atcivation(self.activation, raw_output)
+                        
                 else:
                     raw_output, new_h = layer(raw_output, hidden[n])
                     raw_output = self.lockdrop(raw_output, self.dropouth)
-                    raw_output = apply_atcivation(self.activation, raw_output)
+                    if self.norm == 'linear':
+                        raw_output = apply_atcivation(self.activation, raw_output)
 
-                    if len(new_h.shape) == 2:
-                        new_hidden.append(new_h.unsqueeze(0))
-                    else:
-                        new_hidden.append(new_h)
+                    if self.rnn_type == 'GRU':
+                        if len(new_h.shape) == 2:
+                            new_hidden.append(new_h.unsqueeze(0))
+                        else:
+                            new_hidden.append(new_h)
                 n += 1
 
         if self.rnn_type == 'IRNN':
             return raw_output   
         else:
-            hidden = torch.cat(new_hidden, dim=0)
-            return raw_output, hidden
+            if self.rnn_type == 'GRU':
+                hidden = torch.cat(new_hidden, dim=0)
+                return raw_output, hidden
+            elif self.rnn_type in ['LSTM', 'LSTMN']:
+                return raw_output
 
+                
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type in ['LSTM', 'LSTMN']:
@@ -957,7 +1002,7 @@ class SeqPermutation(nn.Module):
         if p is None:
             p = self.p
 
-        if p == 0:
+        if p == 0 or not self.training:
             return x
 
         new_x = []
@@ -1004,7 +1049,7 @@ class SeqMasking(nn.Module):
         if p is None:
             p = self.p
 
-        if p == 0:
+        if p == 0 or not self.training:
             return x
 
         new_x = []
