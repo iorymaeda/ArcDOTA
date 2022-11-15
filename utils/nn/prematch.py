@@ -16,10 +16,18 @@ class PrematchModel(ConfigBase, nn.Module):
     def __init__(self, teams_num, regression:bool=True, **kwargs):
         super(PrematchModel, self).__init__()
         # --------------------------------------------------------- #
+        self.configs = {
+            "features": self._get_config("features"),
+            "match": self._get_config("match"),
+            "models": self._get_config("models"),
+            "train": self._get_config("train")
+        }
+        
+        # --------------------------------------------------------- #
         self.emb_storage = {}
         self.regression = regression
-        self.features_config: dict = self._get_config('features')['league']
-        self.model_config: dict = self._get_config('models')['prematch']
+        self.features_config: dict = self.configs['features']['league']
+        self.model_config: dict = self.configs['models']['prematch']
 
         # --------------------------------------------------------- #
         # Windows
@@ -32,11 +40,11 @@ class PrematchModel(ConfigBase, nn.Module):
         # Tabular features
         t_config = self.features_config['features']['tabular']
         if t_config['teams']:
-            emb_dim = self.model_config['team_embedding']['embed_dim']
+            emb_dim = self.model_config['team_embedding']['embedding_dim']
             output_dim += emb_dim
-            self.team_embedding = nn.Embedding(
+            self.team_embedding = blocks.Embedding(
                 num_embeddings=teams_num+1, 
-                embedding_dim=emb_dim,
+                **self.model_config['team_embedding']
             )
         if t_config['players']:
             raise NotImplementedError
@@ -45,11 +53,11 @@ class PrematchModel(ConfigBase, nn.Module):
             output_dim += 7
 
         if t_config['prize_pool']:
-            emb_dim = self.model_config['prize_pool_embedding']['embed_dim']
+            emb_dim = self.model_config['prize_pool_embedding']['embedding_dim']
             output_dim += emb_dim
-            self.prize_pool_embedding = nn.Embedding(
+            self.prize_pool_embedding = blocks.Embedding(
                 num_embeddings=8, 
-                embedding_dim=emb_dim,
+                **self.model_config['prize_pool_embedding'],
             )
         # --------------------------------------------------------- #
         # output head
@@ -108,27 +116,27 @@ class PrematchModel(ConfigBase, nn.Module):
 
         # --------------------------------------------------------- #
         output = self.output_head(r_emb, d_emb)
+        self.emb_storage['output'] = output
         return output
 
-
+    @torch.no_grad()
     def predict(self, inputs: dict):
         self.eval()
-        with torch.no_grad():
-            output: torch.Tensor = self.forward(inputs)
-            output = output.cpu()
+        output: torch.Tensor = self.forward(inputs)
+        output = output.cpu()
 
         if self.regression: 
             return output
 
-        elif len(output.shape) == 2:
-            if output.shape[1] == 2:
+        elif output.ndim == 2:
+            if output.size(1) == 2:
                 output = output.softmax(dim=1)
                 return output[:, 1]
                 
-            if output.shape[1] == 1:
+            elif output.size(1) == 1:
                 return output.sigmoid()
 
-        elif len(output.shape) == 1:
+        elif output.ndim == 1:
             # In fact, it's impossible
             return output.sigmoid()
 
