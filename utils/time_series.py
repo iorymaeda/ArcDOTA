@@ -10,7 +10,7 @@ from .tokenizer import Tokenizer
 from .base import ConfigBase
 
 
-class TSCollector(ConfigBase):
+class PrematchTSCollector(ConfigBase):
     def __init__(self, mask_type: str='bool', y_output: Literal['binary', 'crossentropy']='binary', teams_reg_output:bool=True, tokenizer_path:str=None):
         assert y_output in ['binary', 'crossentropy']
 
@@ -18,7 +18,7 @@ class TSCollector(ConfigBase):
         self.mask_type = mask_type
         self.teams_reg_output = teams_reg_output
         self.output_framework = np.array #//TODO
-        self.config = self._get_config('features')
+        self.config = self._get_config('features')['league']
 
         #//TODO:fix it
         if tokenizer_path is None:
@@ -49,7 +49,7 @@ class TSCollector(ConfigBase):
         if isinstance(games, pd.DataFrame):
             games_bool, sides_bool = self.find_games(team_id, games, players)
             
-            window = self.config['league']['window_size']
+            window = self.config['window_size']
             cropped = games[games_bool][-window:]
             sides_bool = sides_bool[-window:]
 
@@ -63,7 +63,7 @@ class TSCollector(ConfigBase):
                 mask_type=mask_type if mask_type else self.mask_type,
             )
 
-            window_features: dict = self.config['league']['features']['window']
+            window_features: dict = self.config['features']['window']
             for feature in window_features:
                 # Can be False or None, so that means we need skip this one
                 if window_features[feature]:
@@ -122,7 +122,7 @@ class TSCollector(ConfigBase):
             output['y_r_stats'] = anchor[[f"r_{f}" for f in _typing.property.FEATURES]].values.astype('float32')
             output['y_d_stats'] = anchor[[f"d_{f}" for f in _typing.property.FEATURES]].values.astype('float32')
 
-        tabular_features = self.config['league']['features']['tabular']
+        tabular_features = self.config['features']['tabular']
         for feature in tabular_features:
             if not tabular_features[feature]: continue
             match feature:
@@ -164,7 +164,7 @@ class TSCollector(ConfigBase):
 
         mask = np.ones(target_size)
         if target_size - seq_len > 0 and seq_len > 0:
-            match self.config['league']['window_pad_mode']:
+            match self.config['window_pad_mode']:
                 case 'start':
                     mask[-seq_len:] = 0
                 case 'end':
@@ -213,7 +213,7 @@ class TSCollector(ConfigBase):
                     self.compare_players(
                         key=k_players, 
                         quary=players, 
-                        matching=self.config['league']['players_rules']['min_match_players_in_window']
+                        matching=self.config['players_rules']['min_match_players_in_window']
                         )
                 )
 
@@ -248,9 +248,9 @@ class TSCollector(ConfigBase):
             for side, win in zip(sides_bool, r_wins):
                 output.append(win if side else not win)
 
-            if self.config['league']['features']['window']['result'] == 'categorical':
+            if self.config['features']['window']['result'] == 'categorical':
                 dtype = 'int64'
-            elif self.config['league']['features']['window']['result'] == 'linear':
+            elif self.config['features']['window']['result'] == 'linear':
                 dtype = 'float32'
             else:
                 raise NotImplementedError
@@ -261,7 +261,7 @@ class TSCollector(ConfigBase):
                 output = np.zeros(shape, dtype=dtype)
             else:
                 output = np.array(output, dtype=dtype)
-                output = self.pad_window(output, window, self.config['league']['window_pad_mode'])
+                output = self.pad_window(output, window, self.config['window_pad_mode'])
 
             return output
         else: raise NotImplementedError
@@ -289,17 +289,17 @@ class TSCollector(ConfigBase):
                     output.append(r_stat if side else d_stat)
 
             if opponent:
-                if self.config['league']['features']['window']['opponent_stats'] == 'categorical':
+                if self.config['features']['window']['opponent_stats'] == 'categorical':
                     raise NotImplementedError
-                elif self.config['league']['features']['window']['opponent_stats'] == 'linear':
+                elif self.config['features']['window']['opponent_stats'] == 'linear':
                     dtype = 'float32'
                 else:
                     raise Exception
 
             else:
-                if self.config['league']['features']['window']['stats'] == 'categorical':
+                if self.config['features']['window']['stats'] == 'categorical':
                     raise NotImplementedError
-                elif self.config['league']['features']['window']['stats'] == 'linear':
+                elif self.config['features']['window']['stats'] == 'linear':
                     dtype = 'float32'
                 else:
                     raise Exception
@@ -310,7 +310,7 @@ class TSCollector(ConfigBase):
                 output = np.zeros(shape, dtype=dtype)
             else:
                 output = np.array(output, dtype=dtype)
-                output = self.pad_window(output, window, self.config['league']['window_pad_mode'])
+                output = self.pad_window(output, window, self.config['window_pad_mode'])
 
             return output
         else: raise NotImplementedError
@@ -337,7 +337,7 @@ class TSCollector(ConfigBase):
             for side, r_team, d_team in zip(sides_bool, teams_r, teams_d):
                 output.append(d_team if side else r_team)
 
-            if self.config['league']['features']['window']['opponent'] == 'categorical':
+            if self.config['features']['window']['opponent'] == 'categorical':
                 dtype = 'int64'
             else:
                 raise Exception
@@ -348,7 +348,7 @@ class TSCollector(ConfigBase):
                 output = np.zeros(shape, dtype=dtype)
             else:
                 output = np.array(output, dtype=dtype)
-                output = self.pad_window(output, window, self.config['league']['window_pad_mode'])
+                output = self.pad_window(output, window, self.config['window_pad_mode'])
 
             return output
         else: raise NotImplementedError
