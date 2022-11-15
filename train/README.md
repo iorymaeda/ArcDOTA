@@ -5,6 +5,16 @@ Folder with train pipelines
 * train on public games - [public.py](public.py) / [public.ipynb](public.ipynb)
 * train on league games - [league.py](league.py) / [league.ipynb](league.ipynb)
 
+## League TODO
+
+* [ ] add league grid information: is_dpc, position in tournament grid, match type (play off, group stage)
+* [ ] pretrain and add pretrained embeddings in models
+    * [ ] players
+    * [ ] teams
+    * [ ] heroes
+* [ ] combine prematch and draft model
+* [ ] implement BERT-like model for encoding dota matches as time-series to vector
+
 ## Public overview
 
 Quick comparison of two methods to ouctome (win) prediction - with pretrain and without pretrain:
@@ -13,10 +23,11 @@ ROCAUC with pretrain    - 55.9 %
 Δ - 0.9 %
 
 Pretrain ideas:
-*  Heroes -> Perfomance*:
-    Feeds heroes, players, and rank tiers on input, excepts perfomance per team/player on output
+
+* Heroes -> Perfomance*:
+  Feeds heroes, players, and rank tiers on input, excepts perfomance per team/player on output
 * Perfomance -> Heroes:
-    Feeds perfomance, excepts heroes per player on output, may uses face-recognition's losses
+  Feeds perfomance, excepts heroes per player on output, may uses face-recognition's losses
 
 *Perfomance is post-match stats like total gold, xp e.t.c.
 
@@ -78,3 +89,4 @@ Kernel weights "centroids" from `Perfomance -> Heroes` model
 ## League overview
 
 ...
+
