@@ -4,7 +4,13 @@ import time
 import torch
 import torch.nn as nn
 
-from .modules import LayerNorm, TransformerEncoder, Callable, RNN, TransformerEncoder, SparseConnectedLayer, SeqMasking, SeqPermutation, Embedding
+from .modules import (
+    GATED_ACT,
+    LayerNorm, AttentionBase,
+    SelfAttention, RNN, SparseConnectedLayer, 
+    SeqMasking, SeqPermutation, Embedding, 
+    apply_atcivation, apply_seq_batchnorm, get_norm, get_activation
+    )
 from ..base import ConfigBase
 from .._typing.property import FEATURES
 
@@ -18,26 +24,58 @@ def set_init(func):
 # ----------------------------------------------------------------------------------------------- #
 # Prematch blocks
 class StatsEncoder(nn.Module):
-    def __init__(self, in_dim:int, ff_dim:int, out_dim:int, bias: bool, num_layers:int, dropout:float, wdropoout:float, bdropoout:float, prenorm:bool, norm:str):
+    def __init__(self, 
+        in_dim:int, ff_dim:int, 
+        out_dim:int, bias: bool, 
+        num_layers:int, dropout:float, 
+        wdropoout:float, bdropoout:float, 
+        prenorm:bool, predropout:bool, 
+        norm:str, activation: str,
+        last_layer_activation: bool
+        ):
+
         super(StatsEncoder, self).__init__()
         assert num_layers >= 1
-        assert norm in ['layer', 'batch']
-
-        norm = nn.LayerNorm if norm == 'layer' else nn.BatchNorm1d
+        
+        self.norm = norm
+        self.activation = activation
+        self.last_layer_activation = last_layer_activation
         # -------------------------------- #
-        modules = [SparseConnectedLayer(in_dim, ff_dim, bias=bias, pw=wdropoout, pb=bdropoout), nn.GELU(), nn.Dropout(dropout)]
-        for _ in range(num_layers - 1):
-            if prenorm:
-                modules += [SparseConnectedLayer(ff_dim, ff_dim, bias=bias, pw=wdropoout, pb=bdropoout), norm(ff_dim), nn.GELU(), nn.Dropout(dropout)]
-            else:
-                modules += [SparseConnectedLayer(ff_dim, ff_dim, bias=bias, pw=wdropoout, pb=bdropoout), nn.GELU(), norm(ff_dim), nn.Dropout(dropout)]
+        modules = []
+        for l_num in range(num_layers):
+            modules += [
+                SparseConnectedLayer(
+                    in_dim if l_num == 0 else ff_dim, 
+                    ff_dim*2 if activation in GATED_ACT else ff_dim, 
+                    bias=bias, 
+                    pw=wdropoout, 
+                    pb=bdropoout
+                    ), 
+                ]
 
-        self.stats1 = SparseConnectedLayer(ff_dim, out_dim, bias=bias, pw=wdropoout, pb=bdropoout)
-        self.stats2 = SparseConnectedLayer(ff_dim, out_dim, bias=bias, pw=wdropoout, pb=bdropoout)
+            if predropout:
+                modules += [nn.Dropout(dropout)]
+
+            if prenorm:
+                modules += [
+                    get_norm(norm)(ff_dim*2 if activation in GATED_ACT else ff_dim), 
+                    get_activation(activation), 
+                    ]
+            else:
+                modules += [
+                    get_activation(activation), 
+                    get_norm(norm)(ff_dim), 
+                    ]
+
+            if not predropout:
+                modules += [nn.Dropout(dropout)]
+
+        self.stats1 = SparseConnectedLayer(ff_dim, out_dim*2 if ((activation in GATED_ACT) and last_layer_activation) else out_dim, bias=bias, pw=wdropoout, pb=bdropoout)
+        self.stats2 = SparseConnectedLayer(ff_dim, out_dim*2 if ((activation in GATED_ACT) and last_layer_activation) else out_dim, bias=bias, pw=wdropoout, pb=bdropoout)
         self.stats_encoder = nn.ModuleList(modules)
 
 
-    def forward(self, inputs: torch.Tensor, opponent_stats=False) -> torch.Tensor:
+    def forward(self, inputs: torch.Tensor, opponent_stats=False, mask: torch.BoolTensor=None) -> torch.Tensor:
         # |inputs| : (batch_size, seq_len, d_model)
 
         output = inputs
@@ -46,12 +84,14 @@ class StatsEncoder(nn.Module):
             output: torch.Tensor
 
             if isinstance(layer, nn.BatchNorm1d):
-                output = layer(output.transpose(1, 2))
-                output = output.transpose(1, 2)
+                output = apply_seq_batchnorm(output, layer, mask if self.norm == 'masked_batch' else None)
             else:
                 output = layer(output)
 
         output = self.stats2(output) if opponent_stats else self.stats1(output)
+
+        if self.last_layer_activation:
+            output = apply_atcivation(self.activation, output)
 
         return output
 
@@ -65,46 +105,78 @@ class WindowGamesFeatureEncoder(ConfigBase, nn.Module):
             in_dim=len(FEATURES), 
             out_dim=self.models_config['embed_dim'], 
             **self.models_config['statsEncoder']
-        )
+            )
+
+        if self.models_config['splitStatsEncoder']:
+            self.statsEncoder2 = StatsEncoder(   
+                in_dim=len(FEATURES), 
+                out_dim=self.models_config['embed_dim'], 
+                **self.models_config['statsEncoder']
+                )
+
         if self.models_config['pos_encoding']:
-            self.pos_embedding = nn.Embedding(self.features_config['window_size']+1, self.models_config['embed_dim'])
+            self.pos_embedding = Embedding(
+                self.features_config['window_size']+1, 
+                self.models_config['embed_dim'], 
+                **self.models_config['posEncoder'], padding_idx=0
+                )
 
         self.resultEncoder = Embedding(
             num_embeddings=2,
             embedding_dim=self.models_config['embed_dim'], 
-            **self.models_config['resultEncoder']
-        )
+            **self.models_config['resultEncoder'], padding_idx=0
+            )
 
-    def forward(self, inputs: dict) -> torch.Tensor:
+        self.norm = get_norm(self.models_config['norm'])
+        self.norm = self.norm(self.models_config['embed_dim'])
+
+        self.masking = SeqMasking(**self.models_config['seq_masking'])
+        self.permutation = SeqPermutation(**self.models_config['seq_permutation'])
+
+    def forward(self, inputs: dict) -> tuple[torch.Tensor, torch.Tensor, dict]:
         """Preprocces and encode input data
         inputs is raw dict output from dataset"""
 
-        r_window = self.encode_features(inputs['r_window'])
-        d_window = self.encode_features(inputs['d_window'])
+        inputs['r_window'], inputs['r_window']['padded_mask'], inputs['r_window']['seq_len'] =\
+            self.masking(inputs['r_window'], inputs['r_window']['padded_mask'], inputs['r_window']['seq_len'])
+        inputs['r_window'] = self.permutation(inputs['r_window'], inputs['r_window']['padded_mask'], inputs['r_window']['seq_len'])
+        
+        inputs['d_window'], inputs['d_window']['padded_mask'], inputs['d_window']['seq_len'] =\
+            self.masking(inputs['d_window'], inputs['d_window']['padded_mask'], inputs['d_window']['seq_len'])
+        inputs['d_window'] = self.permutation(inputs['d_window'], inputs['d_window']['padded_mask'], inputs['d_window']['seq_len'])
+
+        r_window = self.encode_features(inputs['r_window'], inputs['r_window']['padded_mask'])
+        d_window = self.encode_features(inputs['d_window'], inputs['d_window']['padded_mask'])
 
         # position encoding
         if self.models_config['pos_encoding']:
             r_window = r_window + self.pos_embedding(self.generate_pos_tokens(r_window))
             d_window = d_window + self.pos_embedding(self.generate_pos_tokens(d_window))
-            
-        return r_window, d_window
+        
+        return r_window, d_window, inputs
 
+    def generate_pos_tokens(self, inputs: torch.Tensor, mask: torch.BoolTensor=None) -> torch.Tensor:
+        pos = torch.arange(1, inputs.size(1), device=inputs.device, dtype=torch.int64).repeat(inputs.size(0), 1)
+        # |pos|: (B, S)
 
-    def generate_pos_tokens(self, inputs: torch.Tensor) -> torch.Tensor:
-        return torch.arange(inputs.size(1), device=inputs.device, dtype=torch.int64).repeat(inputs.size(0), 1)
+        if mask is not None:
+            pos[mask] = 0
 
+        return pos
 
-    def encode_features(self, window: dict) -> torch.Tensor:
+    def encode_features(self, window: dict, mask:torch.Tensor=None) -> torch.Tensor:
         output: torch.Tensor = None
-
         for feature in window:
             f_output: torch.Tensor = None
             match feature:
                 case 'stats':
-                    f_output = self.statsEncoder(window[feature], opponent_stats=False)
+                    f_output = self.statsEncoder(window[feature], opponent_stats=False, mask=mask)
 
                 case 'opponent_stats':
-                    f_output = self.statsEncoder(window[feature], opponent_stats=True)
+                    if self.models_config['splitStatsEncoder']:
+                        f_output = self.statsEncoder2(window[feature], opponent_stats=False, mask=mask)
+                    else:
+                        f_output = self.statsEncoder(window[feature], opponent_stats=True, mask=mask)
 
                 case 'result':
                     f_output = self.resultEncoder(window[feature])
@@ -116,9 +188,12 @@ class WindowGamesFeatureEncoder(ConfigBase, nn.Module):
                     pass
                     
             if f_output is not None:
-                if output is None: output = f_output
-                else: output += f_output
+                if output is None: 
+                    output = f_output
+                else: 
+                    output = output + f_output
 
+        output = apply_seq_batchnorm(output, self.norm, mask if self.models_config['norm'] == 'masked_batch' else None)
         return output
 
 class WindowSeqEncoder(ConfigBase, nn.Module):
@@ -150,13 +225,17 @@ class WindowSeqEncoder(ConfigBase, nn.Module):
                     modules += [nn.Linear(in_features=in_dim, out_features=out_dim)]
 
                 modules += [
-                    TransformerEncoder(**self.model_config['windows_seq_encoder']['transformer'])
+                    SelfAttention(**self.model_config['windows_seq_encoder']['transformer'])
                     for _ in range(self.model_config['windows_seq_encoder']['transformer']['num_encoder_layers'])
                 ]
                 output_dim = out_dim
 
             elif t in ['LSTM', 'LSTMN', 'GRU', 'IRNN']:
                 config = self.model_config['windows_seq_encoder'][t]
+                self.pool_output = config['pool_output']
+
+                assert not (config['output_hidden'] and self.pool_output), 'You cant pool hidden states'
+
                 input_size = output_dim if output_dim != 0 else in_dim
                 modules += [RNN(rnn_type=t, input_size=input_size, **config)]
 
@@ -169,20 +248,13 @@ class WindowSeqEncoder(ConfigBase, nn.Module):
         self.windows_seq_encoder = nn.ModuleList(modules)
         self.output_dim = output_dim
 
-        self.masking = SeqMasking(**self.model_config['windowGamesFeatureEncoder']['seq_masking'])
-        self.permutation = SeqPermutation(**self.model_config['windowGamesFeatureEncoder']['seq_permutation'])
-
-    def forward(self, window: torch.Tensor, key_padding_mask:torch.Tensor=None, seq_len:torch.Tensor=None) -> torch.FloatTensor:
-        with torch.no_grad():
-            window = self.masking(window)
-            window = self.permutation(window)
-
+    def forward(self, window: torch.Tensor, key_padding_mask:torch.Tensor, seq_len:torch.Tensor) -> torch.FloatTensor:
         skip_connection = None
         for idx, layer in enumerate(self.windows_seq_encoder):
             if isinstance(layer, nn.Linear):
                 window = layer(window)
 
-            elif isinstance(layer, TransformerEncoder):
+            elif isinstance(layer, AttentionBase):
                 if idx == 0:
                     window = skip_connection = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
 
@@ -194,21 +266,31 @@ class WindowSeqEncoder(ConfigBase, nn.Module):
                     # However a ``` `True` value indicates that the corresponding key value will be IGNORED ```
                     # for some reasons irl it's the other way around
                     window = layer(window, key_padding_mask=~key_padding_mask if key_padding_mask is not None else None)
+
+            elif isinstance(layer, RNN):
+                window, state_dict = layer(window, key_padding_mask=key_padding_mask, seq_len=seq_len)
+                key_padding_mask, seq_len = state_dict['key_padding_mask'], state_dict['seq_len']
+
             else: 
                 window = layer(window)
 
-        window: torch.Tensor 
-        if len(window.shape) == 3:
-            if window.shape[-1] > 1:
-                # |window| : (batch_size, seq_len, embed_dim)
-                pooled_w = self.__global_avg_pooling(
-                    window=window, seq_len=seq_len,
-                    key_padding_mask=key_padding_mask) 
-                # |pooled| : (batch_size, embed_dim)
-                return pooled_w
+        window: torch.Tensor # |window|: (B, S, F) or (B, F)
+        if window.ndim == 3:
+            if window.size(-1) > 1:
+                if isinstance(layer, RNN):
+                    return window[:, -1, :]
+
+                if isinstance(layer, AttentionBase) or (isinstance(layer, RNN) and self.pool_output):
+                    # |window| : (batch_size, seq_len, embed_dim)
+                    pooled_w = self.__global_avg_pooling(
+                        window=window, seq_len=seq_len,
+                        key_padding_mask=key_padding_mask) 
+                    # |pooled| : (batch_size, embed_dim)
+                    return pooled_w
+
             else:
                 # |window| : (batch_size, embed_dim, 1)
-                pooled = window.squeeze(2)
+                pooled_w = window.squeeze(2)
                 # |pooled| : (batch_size, embed_dim)
                 return pooled_w
         else:
@@ -246,7 +328,7 @@ class OutputHead(ConfigBase, nn.Module):
             self.in_fnn = nn.Linear(in_features=in_dim, out_features=embed_dim, bias=False)
             
             self.compare = nn.Sequential(*[
-                    TransformerEncoder(**conf) for _ in range(conf['num_encoder_layers'])
+                    SelfAttention(**conf) for _ in range(conf['num_encoder_layers'])
             ])
             self.out_fnn = SparseConnectedLayer(
                 in_features=embed_dim, 
@@ -258,24 +340,42 @@ class OutputHead(ConfigBase, nn.Module):
             assert not regression, 'regression only for transformer'
             assert conf['norm'] in ['batch', 'layer', 'none', None]
 
-            if conf['norm'] == 'batch':
-                norm = nn.BatchNorm1d
-            elif conf['norm'] == 'layer':
-                norm = nn.LayerNorm
-            else:
-                norm = Callable
-
+            # -------------------------------------------------- #
+            # in fnn
             modules = []
+            norm = get_norm(conf['norm'])
             for _in, _out in zip( [in_dim]+conf['in_fnn_dims'][:-1], conf['in_fnn_dims'] ):
+                modules += [SparseConnectedLayer(_in, _out*2 if conf['in_activation'] in GATED_ACT else _out, bias=conf['in_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout'])]
+
+                if conf['predropout']:
+                    modules += [nn.Dropout(conf['dropout'])]
+
                 if conf['prenorm']:
-                    modules += [SparseConnectedLayer(_in, _out, bias=conf['in_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']), norm(_out), nn.GELU(), nn.Dropout(conf['dropout'])]
+                    modules += [
+                        get_norm(norm)(_out*2 if conf['in_activation'] in GATED_ACT else _out), 
+                        get_activation(conf['in_activation']), 
+                        ]
                 else:
-                    modules += [SparseConnectedLayer(_in, _out, bias=conf['in_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']), nn.GELU(), norm(_out), nn.Dropout(conf['dropout'])]
+                    modules += [
+                        get_activation(conf['in_activation']), 
+                        get_norm(norm)(_out), 
+                        ]
+
+                if not conf['predropout']:
+                    modules += [nn.Dropout(conf['dropout'])]
+
             self.in_fnn = nn.Sequential(*modules)
 
+            # -------------------------------------------------- #
+            # compare fnn
             modules = []
             for _in, _out in zip( [_out*2]+conf['compare_fnn_dims'][:-1], conf['compare_fnn_dims']):
-                modules += [SparseConnectedLayer(_in, _out, bias=conf['compare_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']), nn.GELU(), nn.Dropout(conf['dropout'])]
+                modules += [
+                    SparseConnectedLayer(_in, _out*2 if conf['compare_activation'] in GATED_ACT else _out, bias=conf['compare_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']),
+                    get_activation(conf['compare_activation']),
+                    nn.Dropout(conf['dropout']),
+                    ]
+
             modules += [nn.Linear(conf['compare_fnn_dims'][-1], conf['out_dim'], bias=conf['compare_fnn_bias'])]
             self.compare_fnn = nn.Sequential(*modules)
 
@@ -283,16 +383,37 @@ class OutputHead(ConfigBase, nn.Module):
             assert not regression, 'regression only for transformer'
             conf = self.model_config['compare_encoder']['subtract']
 
+            # -------------------------------------------------- #
+            # int fnn
             modules = []
-            for _in, _out in zip( [in_dim]+conf['in_fnn_dims'][:-1], conf['in_fnn_dims'] ):
-                modules += [SparseConnectedLayer(_in, _out, bias=conf['in_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']), nn.GELU(), nn.Dropout(conf['dropout'])]
+            for _in, _out in zip( [in_dim]+conf['in_fnn_dims'][:-1], conf['in_fnn_dims']):
+                modules += [
+                    SparseConnectedLayer(_in, _out*2 if conf['activation'] in GATED_ACT else _out, bias=conf['in_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']),
+                    get_activation(conf['activation']),
+                    nn.Dropout(conf['dropout']),
+                    ]
             self.in_fnn = nn.Sequential(*modules)
 
+            # -------------------------------------------------- #
+            # compare fnn
             modules = []
             for _in, _out in zip( [_out]+conf['compare_fnn_dims'][:-1], conf['compare_fnn_dims']):
-                modules += [SparseConnectedLayer(_in, _out, bias=conf['compare_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']), nn.Tanh(), nn.Dropout(conf['dropout'])]
+                modules += [
+                    SparseConnectedLayer(_in, _out, bias=conf['compare_fnn_bias'], pw=conf['wdropoout'], pb=conf['bdropoout']), 
+                    nn.Dropout(conf['dropout']),
+                    nn.Tanh(), 
+                    ]
             modules += [nn.Linear(conf['compare_fnn_dims'][-1], 1, bias=conf['compare_fnn_bias'])]
             self.compare_fnn = nn.Sequential(*modules)
+
+            # -------------------------------------------------- #
+            #  init
+            for w in self.compare_fnn.parameters():
+                if w.ndim == 2:
+                    nn.init.uniform_(w, -0.1, 0.1)
+
+                if w.ndim == 1:
+                    nn.init.zeros_(w)
         
         else: raise Exception
 

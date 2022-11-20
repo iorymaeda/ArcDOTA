@@ -11,17 +11,20 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from .tools import no_dropout, no_layer_norm, get_indicator, get_module_device 
 
-
+GATED_ACT = ['swiglu', 'glu']
 # ----------------------------------------------------------------------------------------------- #
 # Stuff
+def swiglu(x:torch.Tensor):
+    # |x| : (..., Any)
+    x, gate = x.chunk(2, dim=-1)
+    x = F.silu(gate) * x
+    # |x| : (..., Any//2)
+    return x
+
 class SwiGLU(nn.Module):
     """https://arxiv.org/abs/2002.05202"""
     def forward(self, x:torch.Tensor):
-        # |x| : (..., Any)
-        x, gate = x.chunk(2, dim=-1)
-        x = F.silu(gate) * x
-        # |x| : (..., Any//2)
-        return x
+        return swiglu(x)
         
 class LayerNorm(nn.Module):
     """LayerNorm without bias"""
@@ -68,13 +71,10 @@ class SparseConnectedLayer(nn.Module):
             nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        pw = self.pw if self.training else 0
-        pb = self.pb if self.training else 0
         b = self.bias
         
-        w = F.dropout(self.weight, pw)
-        b = b if b is None else F.dropout(b, pb)
-        
+        w = F.dropout(self.weight, self.pw, training=self.training)
+        b = b if b is None else F.dropout(b, self.pb, training=self.training)
         return F.linear(x, w, b)
 
     def extra_repr(self) -> str:
@@ -172,10 +172,38 @@ class LockedDropout(nn.Module):
         mask = mask.expand_as(x)
         return mask * x
 
+class Embedding(nn.Module):
+    def __init__(self, num_embeddings, embedding_dim, dropout:float=0., init:str='none', init_kwargs:dict={}, max_norm:float=None, padding_idx:int=None):
+        super(Embedding, self).__init__()
+        assert init in ['none', 'kaiming_uniform', 'uniform', 'normal']
+
+        self.embeddings = nn.Embedding(num_embeddings, embedding_dim, max_norm=max_norm, padding_idx=padding_idx)
+        self.dropout = nn.Dropout(dropout)
+        if init == 'kaiming_uniform':
+            nn.init.kaiming_uniform_(self.embeddings.weight, **init_kwargs)
+        elif init == 'uniform':
+            nn.init.uniform_(self.embeddings.weight, **init_kwargs)
+        elif init == 'normal':
+            nn.init.normal_(self.embeddings.weight, **init_kwargs)
+
+    def forward(self, inputs: torch.IntTensor | torch. FloatTensor) -> torch.Tensor:
+        # |inputs| : (*)
+        if inputs.dtype is torch.int64:
+            outputs = self.embeddings(inputs)
+            outputs = self.dropout(outputs)
+            # |outputs| : (*, H), where H - embedding_dim
+            return outputs
+
+        else: raise NotImplementedError
+
 def apply_atcivation(f:str, x:torch.Tensor):
-    match f:
+    match f.lower():
         case None | 'none' | 'linear':
             return x
+        case 'swiglu':
+            return swiglu(x)
+        case 'glu':
+            return F.glu(x)
         case 'relu':
             return F.relu(x)
         case 'gelu':
@@ -199,31 +227,70 @@ def apply_atcivation(f:str, x:torch.Tensor):
         case _:
             raise Exception("Unexcepted activation")
 
+def apply_seq_batchnorm(x: torch.Tensor, layer: nn.BatchNorm1d, mask: torch.BoolTensor=None):
+    # |x| : (B, S, F) torch tensor
+    B, S, F = x.size()
+    x = x.reshape(B * S, F)
+    if mask is not None:
+        B, S = mask.size()
+        batch_mask = mask.reshape(B*S)
+        x[~batch_mask] = layer(x[~batch_mask])
+
+    else:
+        x = layer(x)
+
+    x = x.reshape(B, S, F)
+    # More slowly
+    # x = x.transpose(1, 2)
+    # x = layer(x)
+    # x = x.transpose(1, 2)
+    return x
+
 def layer_norm(x: torch.Tensor):
     return F.layer_norm(x, x.shape[-1])
 
-class Embedding(nn.Module):
-    def __init__(self, num_embeddings, embedding_dim, dropout:float=0., init:str='none', init_kwargs:dict={}, max_norm:float=None):
-        super(Embedding, self).__init__()
-        assert init in ['none', 'kaiming_uniform', 'uniform']
+def get_norm(norm: str) -> nn.BatchNorm1d | nn.LayerNorm | Callable:
+    if norm == 'batch':
+        norm = nn.BatchNorm1d
+    elif norm == 'masked_batch':
+        norm = nn.BatchNorm1d
+    elif norm == 'layer':
+        norm = nn.LayerNorm
+    else:
+        norm = Callable
+    
+    return norm
 
-        self.embeddings = nn.Embedding(num_embeddings, embedding_dim, max_norm=max_norm)
-        self.dropout = nn.Dropout(dropout)
-        if init == 'kaiming_uniform':
-            nn.init.kaiming_uniform_(self.embeddings.weight, **init_kwargs)
-        if init == 'uniform':
-            nn.init.uniform_(self.embeddings.weight, **init_kwargs)
-
-    def forward(self, inputs: torch.IntTensor | torch. FloatTensor) -> torch.Tensor:
-        # |inputs| : (*)
-        if inputs.dtype is torch.int64:
-            outputs = self.embeddings(inputs)
-            outputs = self.dropout(outputs)
-            # |outputs| : (*, H), where H - embedding_dim
-            return outputs
-
-        else: raise NotImplementedError
-        
+def get_activation(act: str) -> nn.Module:
+    match act.lower():
+        case None | 'none' | 'linear':
+            return Callable
+        case 'swiglu':
+            return SwiGLU()
+        case 'glu':
+            return nn.GLU()
+        case 'relu':
+            return nn.ReLU()
+        case 'gelu':
+            return nn.GELU()
+        case 'hardtanh':
+            return nn.Hardtanh()
+        case 'hardswish':
+            return nn.Hardswish()
+        case 'tanh':
+            return nn.Tanh()
+        case 'sigmoid':
+            return nn.Sigmoid()
+        case 'selu':
+            return nn.SELU()
+        case 'elu':
+            return nn.ELU()
+        case 'leaky_relu':
+            return nn.LeakyReLU()
+        case 'mish':
+            return nn.Mish()
+        case _:
+            raise Exception("Unexcepted activation")
 # ----------------------------------------------------------------------------------------------- #
 # Cells
 class LSTMFrame(nn.Module):
@@ -591,9 +658,9 @@ class IRNNCell(nn.Module):
 
         # ---------------------------------------------------- #
         if self.rec_norm:
-            x = x + layer_norm(torch.mm(X_t, self.W_x))
-            x = x + layer_norm(torch.mm(h_t_previous, self.U_h))
-            x = x + layer_norm(self.b)
+            x = layer_norm(torch.mm(X_t, self.W_x))
+            u = layer_norm(torch.mm(h_t_previous, self.U_h))
+            x = layer_norm(x + u + self.b)
         else:
             x = torch.mm(X_t, self.W_x) + torch.mm(h_t_previous, self.U_h) + self.b
         
@@ -646,6 +713,7 @@ class LayerNormLSTM(LSTMFrame):
                          batch_first=batch_first, bidirectional=bidirectional)
 
 class GRU(nn.GRU):
+    """This is helps to avoid unnecessary arguments in **kwargs"""
     def __init__(self, input_size, hidden_size, num_layers=1, bias=True, batch_first=False, dropout=0, bidirectional=False, **kwargs):
         super().__init__(input_size=input_size, hidden_size=hidden_size, 
         num_layers=num_layers, bias=bias, batch_first=batch_first, 
@@ -757,6 +825,7 @@ class WRNN(nn.Module):
         seq_permutation:dict=None, seq_masking:dict=None, **kwargs):
         super(WRNN, self).__init__()
         assert rnn_type in ['LSTM', 'GRU', 'LSTMN', 'IRNN'], 'RNN type is not supported'
+        assert norm in ['batch', 'masked_batch', 'layer', 'none'], 'Incorrect norm type'
 
         if rnn_type == 'IRNN':
             if wdrop > 0:
@@ -774,9 +843,12 @@ class WRNN(nn.Module):
                 rnn = ZoneoutRNN(
                     rnn_type, 
                     input_size=input_size if l == 0 else hidden_size, 
-                    hidden_size=hidden_size, num_layers=1,
-                    zoneout_prob=zoneout_prob, zoneout_layernorm=zoneout_layernorm,
-                    dropout=dropout, activation='linear',
+                    hidden_size=hidden_size*2 if activation in GATED_ACT else hidden_size, 
+                    num_layers=1, 
+                    dropout=dropout, 
+                    activation='linear',
+                    zoneout_prob=zoneout_prob, 
+                    zoneout_layernorm=zoneout_layernorm,
                 )
                 if wdrop > 0:
                     rnn = WeightDrop(rnn, ['weight_hh'], dropout=wdrop)
@@ -785,7 +857,7 @@ class WRNN(nn.Module):
             else:
                 rnn = self.RNNs[rnn_type](
                     input_size=input_size if l == 0 else hidden_size, 
-                    hidden_size=hidden_size, 
+                    hidden_size=hidden_size*2 if activation in GATED_ACT else hidden_size, 
                     batch_first=batch_first, 
                     activation='linear',
                     dropout=dropout if rnn_type == 'IRNN' else 0,
@@ -796,11 +868,17 @@ class WRNN(nn.Module):
                     rnn = WeightDrop(rnn, ['weight_hh_l0'], dropout=wdrop)
                 self.rnns.append(rnn)
 
-            if norm == 'batch':
-                self.rnns.append(nn.BatchNorm1d(hidden_size))
+            if norm == 'batch' or norm == 'masked_batch':
+                if activation in GATED_ACT and prenorm:
+                    self.rnns.append(nn.BatchNorm1d(hidden_size*2))
+                else:
+                    self.rnns.append(nn.BatchNorm1d(hidden_size))
 
             if norm == 'layer':
-                self.rnns.append(nn.LayerNorm(hidden_size))
+                if activation in GATED_ACT and prenorm:
+                    self.rnns.append(nn.LayerNorm(hidden_size*2))
+                else:
+                    self.rnns.append(nn.LayerNorm(hidden_size))
 
         self.rnns = nn.ModuleList(self.rnns)
         self.lockdrop = LockedDropout(batch_first=batch_first)
@@ -823,25 +901,25 @@ class WRNN(nn.Module):
     def init_weights(self):
         return
 
-    def forward(self, input: torch.Tensor, hidden=None):
+    def forward(self, input: torch.Tensor, hidden=None, key_padding_mask:torch.Tensor=None, seq_len:torch.Tensor=None) -> dict:
+        """ 
+        key_padding_mask: padding mask (B, S) shape. `True` value in key_padding_mask indicates that the corresponding key value will be IGNORED
+        seq_len: original len of seq (B) shape.
+        """
         if hidden is None:
             bsz = input.size(0) if self.batch_first else input.size(1)
             hidden = self.init_hidden(bsz)
 
-        raw_output = self.lockdrop(input, self.dropouti)
-
         n = 0
-        new_hidden = []
+        raw_output = self.lockdrop(input, self.dropouti)
         for layer in self.rnns:
             if isinstance(layer, nn.BatchNorm1d):
                 if self.prenorm:
-                    raw_output = layer(raw_output.transpose(1, 2))
-                    raw_output = raw_output.transpose(1, 2)
+                    raw_output = apply_seq_batchnorm(raw_output, layer, mask=key_padding_mask)
                     raw_output = apply_atcivation(self.activation, raw_output)
                 else:
                     raw_output = apply_atcivation(self.activation, raw_output)
-                    raw_output = layer(raw_output.transpose(1, 2))
-                    raw_output = raw_output.transpose(1, 2)
+                    raw_output = apply_seq_batchnorm(raw_output, layer, mask=key_padding_mask)
 
             elif isinstance(layer, nn.LayerNorm):
                 if self.prenorm:
@@ -851,44 +929,31 @@ class WRNN(nn.Module):
                     raw_output = apply_atcivation(self.activation, raw_output)
                     raw_output = layer(raw_output)
                     
-            elif isinstance(layer, (SeqPermutation, SeqMasking)):
-                raw_output = layer(raw_output)
+            elif isinstance(layer, SeqMasking):
+                raw_output, key_padding_mask, seq_len = layer(raw_output, key_padding_mask, seq_len)
+
+            elif isinstance(layer, SeqPermutation):
+                raw_output = layer(raw_output, key_padding_mask, seq_len)
+
             else:
-                if self.rnn_type == 'IRNN':
-                    raw_output = layer(raw_output, hidden[n])
-                    raw_output = self.lockdrop(raw_output, self.dropouth)
-                    if self.norm == 'linear':
-                        raw_output = apply_atcivation(self.activation, raw_output)
-                        
-                else:
-                    raw_output, new_h = layer(raw_output, hidden[n])
-                    raw_output = self.lockdrop(raw_output, self.dropouth)
-                    if self.norm == 'linear':
-                        raw_output = apply_atcivation(self.activation, raw_output)
+                raw_output, new_hidden = layer(raw_output, hidden[n])
+                raw_output = self.lockdrop(raw_output, self.dropouth)
+                if self.norm == 'linear':
+                    raw_output = apply_atcivation(self.activation, raw_output)
+                n+=1
 
-                    if self.rnn_type == 'GRU':
-                        if len(new_h.shape) == 2:
-                            new_hidden.append(new_h.unsqueeze(0))
-                        else:
-                            new_hidden.append(new_h)
-                n += 1
+        return {
+            'output': raw_output,
+            'hidden': new_hidden,
+            'key_padding_mask': key_padding_mask,
+            'seq_len': seq_len,
+        }
 
-        if self.rnn_type == 'IRNN':
-            return raw_output   
-        else:
-            if self.rnn_type == 'GRU':
-                hidden = torch.cat(new_hidden, dim=0)
-                return raw_output, hidden
-            elif self.rnn_type in ['LSTM', 'LSTMN']:
-                return raw_output
-
-                
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type in ['LSTM', 'LSTMN']:
             return [(weight.new(1, bsz, self.hidden_size).zero_(),
-                    weight.new(1, bsz, self.hidden_size).zero_())
-                    for l in range(self.num_layers)]
+                    weight.new(1, bsz, self.hidden_size).zero_())]
         elif self.rnn_type == 'GRU':
             return [weight.new(1, bsz, self.hidden_size).zero_()
                     for l in range(self.num_layers)]
@@ -905,15 +970,20 @@ class RNNAttention(nn.Module):
         super(RNNAttention, self).__init__()
         self.scale = 1. / math.sqrt(query_dim)
 
-    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor):
+    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, key_padding_mask: torch.BoolTensor=None):
         # query == hidden: (batch_size, hidden_dim)
         # key/value == gru_output: (batch_size, sentence_length, hidden_dim)
+        # key_padding_mask: (batch_size, sentence_length)
         query = query.unsqueeze(1) # (batch_size, 1, hidden_dim)
         key = key.transpose(1, 2) # (batch_size, hidden_dim, sentence_length)
 
         # bmm: batch matrix-matrix multiplication
         attention_weight = torch.bmm(query, key) # (batch_size, 1, sentence_length)
-        attention_weight = F.softmax(attention_weight.mul_(self.scale), dim=2) # normalize sentence_length's dimension
+        if key_padding_mask is not None:
+            assert key_padding_mask.dtype is torch.bool
+            attention_weight.masked_fill_(key_padding_mask.unsqueeze(1), -1e9)
+
+        attention_weight = F.softmax(attention_weight.mul_(self.scale), dim=-1) # normalize sentence_length's dimension
         attention_output = torch.bmm(attention_weight, value) # (batch_size, 1, hidden_dim)
 
         # (batch_size, hidden_dim)
@@ -933,6 +1003,9 @@ class RNN(nn.Module):
 
         if not output_hidden and attention:
             raise Exception("We outputs only `hidden` while use attention, but `output_hidden==False`")
+
+        if self.rnn_type == 'IRNN' and attention:
+            raise Exception("`IRNN` dont support attention")
 
         if (output_hidden or bidirectional) and (self.rnn_type in ['LSTM', 'LSTMN', 'LSTMW']):
             raise Exception("Dont use `output_hidden` or `bidirectional` with `LSTM`")
@@ -954,37 +1027,42 @@ class RNN(nn.Module):
             'zoneout_layernorm': zoneout_layernorm,
             'batch_first': True
         })
-
         self.output_hidden = output_hidden
         self.bidirectional = bidirectional
         self.attention = RNNAttention(2*embed_dim if bidirectional else embed_dim) if attention else False
         self.rnn = WRNN(**kwargs)
         
-    def forward(self, x: torch.Tensor):
-        output = self.rnn(x)
+    def forward(self, x: torch.Tensor, key_padding_mask:torch.Tensor, seq_len:torch.Tensor):
+        rnn_output = self.rnn(x, hidden=None, key_padding_mask=key_padding_mask, seq_len=seq_len)
+        output = rnn_output['output']
+        hidden = rnn_output['hidden']
 
-        if self.rnn_type == 'GRU':
-            output, hidden = output
-            output: torch.Tensor # (batch_size, sentence_length, embed_dim (*2 if bidirectional)) 
-            hidden: torch.Tensor # (num_layers (*2 if bidirectional), batch_size, embed_dim) if GRU
-            # ordered: [f_layer_0, b_layer_0, ...f_layer_n, b_layer n]
+        if self.rnn_type in ['LSTM', 'LSTMN']:
+            hidden = hidden[1]
 
-            # concat the final output of forward direction and backward direction
-            if self.bidirectional:
-                # | hidden | : (batch_size, embed_dim * 2)
-                hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
-            else:
-                # | hidden | : (batch_size, embed_dim)
-                hidden = hidden[-1,:,:]
+        output: torch.Tensor # (batch_size, sentence_length, embed_dim (*2 if bidirectional)) 
+        hidden: torch.Tensor # (num_layers (*2 if bidirectional), batch_size, embed_dim) if GRU
+        # ordered: [f_layer_0, b_layer_0, ...f_layer_n, b_layer n]
 
-            if self.attention:
-                rescaled_hidden, attention_weight = self.attention(query=hidden, key=output, value=output)
-                return rescaled_hidden
-
-            return hidden if self.output_hidden else output[:,-1,:]
-
+        # concat the final output of forward direction and backward direction
+        if self.bidirectional:
+            hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
+            # | hidden | : (batch_size, embed_dim * 2)
+            rnn_output['hidden'] = hidden
+            
         else:
-            return output[:,-1,:]
+            hidden = hidden[-1,:,:]
+            # | hidden | : (batch_size, embed_dim)
+            rnn_output['hidden'] = hidden
+
+        if self.attention:
+            rescaled_hidden, attention_weight = self.attention(query=hidden, key=output, value=output)
+            rnn_output['hidden'] = rescaled_hidden
+            rnn_output['attention_weight'] = attention_weight
+
+            return rescaled_hidden, rnn_output
+
+        return (hidden, rnn_output) if self.output_hidden else (output, rnn_output)
 
 # ----------------------------------------------------------------------------------------------- #
 # Augmentation
@@ -996,19 +1074,19 @@ class SeqPermutation(nn.Module):
         self.max_step = max_step
         self.p = p
 
-    def forward(self, x: torch.Tensor, p:float=None):
+    def forward(self, x: torch.Tensor, key_padding_mask:torch.Tensor=None, seq_len:torch.Tensor=None, p=None):
         # |x| : (batch_size, seq_len, ...)
         # shuffle by seq_len
         if p is None:
             p = self.p
 
-        if p == 0 or not self.training:
+        if self.p == 0 or not self.training:
             return x
 
         new_x = []
         max_len = x.size(1) - 1
         for seq_x in x:
-            if random.random() < self.p:
+            if random.random() < p:
                 for _ in range(self.shuffles_num):
                     base_pos = random.randint(0, max_len)
                     start_pos = random.randint(base_pos - self.max_step//2, base_pos)
@@ -1044,13 +1122,13 @@ class SeqMasking(nn.Module):
         super(SeqMasking, self).__init__()
         self.p = p
 
-    def forward(self, x: torch.Tensor, p:float=None):
+    def forward(self, x: torch.Tensor, key_padding_mask:torch.Tensor=None, seq_len:torch.Tensor=None, p=None):
         # |x| : (batch_size, seq_len, embed_dim)
         if p is None:
             p = self.p
 
         if p == 0 or not self.training:
-            return x
+            return x, key_padding_mask, seq_len
 
         new_x = []
         mask = torch.rand(x.size(0), x.size(1)) > p
@@ -1069,19 +1147,19 @@ class SeqMasking(nn.Module):
             new_x.append(padded_arr)
             
         new_x = torch.stack(new_x)
-        return new_x
+        return new_x, key_padding_mask, seq_len
 
 # ----------------------------------------------------------------------------------------------- #
 # Transformer stuff
 class PositionWiseFeedForwardNetwork(nn.Module):
-    def __init__(self, embed_dim, ff_dim, dropout, bias, wdropoout=0., bdropoout=0., **kwargs):
+    def __init__(self, embed_dim, ff_dim, dropout, bias, wdropoout=0., bdropoout=0., activation: str='gelu', **kwargs):
         super(PositionWiseFeedForwardNetwork, self).__init__()
         assert ff_dim%2 == 0
 
-        self.linear1 = SparseConnectedLayer(embed_dim, ff_dim, bias=bias, pw=wdropoout, pb=bdropoout)
+        self.linear1 = SparseConnectedLayer(embed_dim, ff_dim*2 if activation in GATED_ACT else ff_dim, bias=bias, pw=wdropoout, pb=bdropoout)
         self.linear2 = SparseConnectedLayer(ff_dim, embed_dim, bias=bias, pw=wdropoout, pb=bdropoout)
         self.dropout = nn.Dropout(dropout)
-        self.activation = nn.GELU()
+        self.activation = activation
 
         nn.init.normal_(self.linear1.weight, std=0.02)
         nn.init.normal_(self.linear2.weight, std=0.02)
@@ -1089,7 +1167,7 @@ class PositionWiseFeedForwardNetwork(nn.Module):
     def forward(self, inputs):
         # |inputs| : (batch_size, seq_len, d_model)
 
-        outputs = self.activation(self.linear1(inputs))
+        outputs = apply_atcivation(self.activation, self.linear1(inputs))
         outputs = self.dropout(outputs)
         # |outputs| : (batch_size, seq_len, d_ff)
         
@@ -1099,7 +1177,7 @@ class PositionWiseFeedForwardNetwork(nn.Module):
         return outputs
 
 class AttentionBase(nn.Module):
-    def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.15, bias=True, layer_norm='post', **kwargs):
+    def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.15, bias=True, layer_norm='post', activation: str='gelu', **kwargs):
         super(AttentionBase, self).__init__()
         assert layer_norm in ['pre', 'post'], f'Unexcepted layer norm mode: {layer_norm}'
 
@@ -1117,12 +1195,13 @@ class AttentionBase(nn.Module):
         self.ffn = PositionWiseFeedForwardNetwork(
             embed_dim=embed_dim,
             ff_dim=ff_dim,
+            activation=activation,
             dropout=dropout,
             bias=bias,
             **kwargs
         )
 
-class CrossAttentionEncoder(AttentionBase):
+class CrossAttention(AttentionBase):
     def forward(self, x1, x2, key_padding_mask=None, attn_mask=None):
         if self.layer_norm == 'pre':
             # ---------------------- #
@@ -1173,7 +1252,7 @@ class CrossAttentionEncoder(AttentionBase):
         
         else: raise Exception
 
-class TransformerEncoder(AttentionBase):
+class SelfAttention(AttentionBase):
     def forward(self, inputs, key_padding_mask=None, attn_mask=None):
         if self.layer_norm == 'pre':
             inputs_ = self.layernorm1(inputs)

@@ -39,7 +39,7 @@ class PrematchModel(ConfigBase, nn.Module):
         # --------------------------------------------------------- #
         # Tabular features
         t_config = self.features_config['features']['tabular']
-        if t_config['teams']:
+        if t_config['teams']  and self.model_config['team_embedding']['embedding_dim'] > 0:
             emb_dim = self.model_config['team_embedding']['embedding_dim']
             output_dim += emb_dim
             self.team_embedding = blocks.Embedding(
@@ -52,7 +52,15 @@ class PrematchModel(ConfigBase, nn.Module):
         if t_config['grid']:
             output_dim += 7
 
-        if t_config['prize_pool']:
+        if t_config['games_num'] and self.model_config['games_num']['embedding_dim'] :
+            emb_dim = self.model_config['games_num']['embedding_dim']
+            output_dim += emb_dim
+            self.games_num_embedding = blocks.Embedding(
+                num_embeddings=self.features_config['window_size'] + 1, 
+                **self.model_config['games_num'],
+            )
+
+        if t_config['prize_pool'] and self.model_config['prize_pool_embedding']['embedding_dim'] > 0:
             emb_dim = self.model_config['prize_pool_embedding']['embedding_dim']
             output_dim += emb_dim
             self.prize_pool_embedding = blocks.Embedding(
@@ -66,7 +74,7 @@ class PrematchModel(ConfigBase, nn.Module):
 
     def forward(self, inputs: dict):
         # --------------------------------------------------------- #
-        r_window, d_window = self.windowGamesFeatureEncoder(inputs)
+        r_window, d_window, inputs = self.windowGamesFeatureEncoder(inputs)
         # |window| : (batch_size, seq_len, embed_dim)
         self.emb_storage['r_window_featurs'] = r_window
         self.emb_storage['d_window_featurs'] = d_window
@@ -104,6 +112,16 @@ class PrematchModel(ConfigBase, nn.Module):
 
         if self.features_config['features']['tabular']['players']:
             raise NotImplementedError
+
+        if self.features_config['features']['tabular']['games_num']:
+            rgne = self.games_num_embedding(inputs['r_window']['seq_len'])
+            dgne = self.games_num_embedding(inputs['d_window']['seq_len'])
+
+            r_emb = torch.cat([r_emb, rgne], dim=-1)
+            # |r_emb| : (batch_size, embed_dim+GN)
+
+            d_emb = torch.cat([d_emb, dgne], dim=-1)
+            # |r_emb| : (batch_size, embed_dim+GN)
 
         if self.features_config['features']['tabular']['prize_pool']:
             p_pool = self.prize_pool_embedding(inputs['prize_pool'])
