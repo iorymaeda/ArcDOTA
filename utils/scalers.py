@@ -16,15 +16,15 @@ def vectorize_prize_pool(m: int) -> int:
         return 0
     elif 25_000 <= m < 50_000:
         return 1
-    elif 50_000 <= m < 70_000:
+    elif 50_000 <= m < 75_000:
         return 2
-    elif 70_000 <= m < 100_000:
+    elif 75_000 <= m < 100_000:
         return 3
     elif 100_000 <= m < 500_000:
         return 4
-    elif 500_000 <= m < 1_000_000:
+    elif 500_000 <= m < 5_000_000:
         return 5
-    elif 1_000_000 <= m < 10_000_000:
+    elif 5_000_000 <= m < 10_000_000:
         return 6
     elif 10_000_000 <= m:
         return 7
