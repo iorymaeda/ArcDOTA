@@ -182,7 +182,7 @@ class SupervisedClassificationTrainer(BaseTrainer):
         self.metrics = to_device(self.metrics, device)
         self.sample_weight = sample_weight
 
-        self.loss_fn: nn.BCEWithLogitsLoss | nn.CrossEntropyLoss = loss_fn
+        self.loss_fn: nn.BCEWithLogitsLoss | nn.CrossEntropyLoss | nn.L1Loss | nn.MSELoss = loss_fn
         self.optimizer: torch.optim.Optimizer = optimizer   
         self.sheduler: torch.optim.lr_scheduler._LRScheduler = sheduler
 
@@ -257,7 +257,6 @@ class SupervisedClassificationTrainer(BaseTrainer):
                 contrastive_loss += cl
 
             contrastive_loss /= len(models)
-            contrastive_loss *= self.c_reg_a
             outputs2: torch.Tensor = torch.stack(outputs2).mean(dim=0)
 
         # We need second outputs from NN if we don't have one
@@ -301,7 +300,31 @@ class SupervisedClassificationTrainer(BaseTrainer):
                 raise Exception(f"bad Y shape: {y.shape}")
 
         else:
-            raise Exception("Uncorrect LossFN")
+            # ---------------------------------------------- #
+            y = y.float()
+            # if (y.ndim == 2 and y.size(1) == 1) or (y.ndim == 1 and outputs.size(1) == 1):
+            #     outputs = outputs.sigmoid()
+            #     if self.backward_second_output:
+            #         outputs2 = outputs2.sigmoid()
+            # elif (y.ndim == 2 and y.size(1) > 1) or (y.ndim == 1 and outputs.size(1) > 1):
+            #     outputs = outputs.softmax(dim=-1)
+            #     if self.backward_second_output:
+            #         outputs2 = outputs2.softmax(dim=-1)
+
+            # ---------------------------------------------- #
+            # Compare dimensions 
+            if outputs.ndim == 2 and y.ndim == 2:
+                if outputs.size(1) == 2 and y.size(1) == 1:
+                    outputs = outputs[:, 1:]
+                    outputs2 = outputs2[:, 1:] if self.backward_second_output else outputs2
+
+            elif outputs.ndim == 2 and y.ndim == 1:
+                outputs = outputs[:, 1]
+                outputs2 = outputs2[:, 1] if self.backward_second_output else outputs2
+
+            loss: torch.Tensor = self.loss_fn(outputs, y)
+            if self.backward_second_output:
+                loss = (loss + self.loss_fn(outputs2, y)) / 2
 
         # Sample weights
         if 'sample_weights' in x and self.sample_weight:
