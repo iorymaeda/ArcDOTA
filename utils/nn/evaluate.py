@@ -216,11 +216,13 @@ class BookEvaluator:
                 # if abs(0.5-game['y_pred']) < 0.05: continue
                 
                 if r_val < r_odd:
-                    bet = B * cf * (1/r_val)
+                    bet = (B * cf * (1/r_val))
+                    bet = max(bet, bank[0]*cf)
                     if game['y_true'] == 1: bank.append(bank[-1] + bet*r_odd-bet)
                     else: bank.append(bank[-1] - bet)
-                if d_val < d_odd:
+                elif d_val < d_odd:
                     bet = B * cf * (1/d_val)
+                    bet = max(bet, bank[0]*cf)
                     if game['y_true'] == 0: bank.append(bank[-1] + bet*d_odd-bet)
                     else: bank.append(bank[-1] - bet)
             return bank
@@ -237,12 +239,15 @@ class BookEvaluator:
                 
                 if r_val < r_odd:
                     bet = B * cf * (1/r_val)
+                    bet = max(bet, bank[0]*cf)
                     if game['y_true'] == 1: bank.append(bank[-1] + bet*r_odd-bet)
                     else: bank.append(bank[-1] - bet)
-                if d_val < d_odd:
+                elif d_val < d_odd:
                     bet = B * cf * (1/d_val)
+                    bet = max(bet, bank[0]*cf)
                     if game['y_true'] == 0: bank.append(bank[-1] + bet*d_odd-bet)
                     else: bank.append(bank[-1] - bet)
+
                 if bank[-1] > B:
                     B = bank[-1]
             return bank
