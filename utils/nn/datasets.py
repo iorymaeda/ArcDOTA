@@ -9,7 +9,7 @@ from ..base import ConfigBase
 from ..time_series import PrematchTSCollector
 
 
-class LeagueDataset(ConfigBase, D):
+class PrematchDataset(ConfigBase, D):
     def __init__(self, corpus: pd.DataFrame, indexes: pd.Index, evaluate_tokenize:bool=True, y_output: Literal['binary', 'crossentropy']='binary', mask_type: str = 'bool'):
         """TODO: Fill this out with more details later
 
@@ -40,7 +40,7 @@ class LeagueDataset(ConfigBase, D):
         return self.__generated
 
 
-    def build(self) -> 'LeagueDataset':
+    def build(self) -> 'PrematchDataset':
         if not self.cache:
             for index in tqdm.tqdm(self.indexes):
                 sample = self.generate_sample(index)
