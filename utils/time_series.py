@@ -141,6 +141,10 @@ class PrematchTSCollector(ConfigBase):
                     }
                 case 'prize_pool':
                     output['prize_pool'] = anchor['league_prize_pool'].values.astype('int64')[0]
+
+                case 'games_num':
+                    pass
+
                 case _:
                     raise Exception
 
@@ -358,10 +362,10 @@ class PrematchTSCollector(ConfigBase):
         """Pad array to window size
 
         Args:
-            - arr: np.ndarray - null
-            - window: int - null
-            - mode: str - null
-            - constant: int - null
+            - arr: np.ndarray - array to pad over 0 dim
+            - window: int - max array length over 0 dim
+            - mode: str - `start` or `end` place with padded value
+            - constant: int - padded value
 
         Input shape: (Any, ...)
         Output shape: (`window`, ...)"""
@@ -376,11 +380,11 @@ class PrematchTSCollector(ConfigBase):
             padded_arr = np.ones(shape, dtype=arr.dtype)
             padded_arr*= constant
 
-            if l > 0:
-                if mode == 'start':
-                    padded_arr[-l:] = arr
-                elif mode == 'end':
-                    padded_arr[:l] = arr
+            if l and mode == 'start':
+                padded_arr[-l:] = arr
+            elif l and mode == 'end':
+                padded_arr[:l] = arr
+
             return padded_arr
 
         return arr
