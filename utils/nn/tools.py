@@ -10,8 +10,8 @@ from .prematch import PrematchModel
 from ..base import PathBase, ConfigBase
 
 
-def to_device(batch: list|torch.Tensor|dict|torchmetrics.Metric, device) \
-    -> list|torch.Tensor|dict:
+def to_device(batch: list|tuple|dict|torch.Tensor|torchmetrics.Metric, device) \
+    -> list|tuple|dict|torch.Tensor|torchmetrics.Metric:
     """Move any type of batch|nn.Module to device"""
     def recurssive_dict(batch: dict):
         for k, v in batch.items():
@@ -44,6 +44,44 @@ def to_device(batch: list|torch.Tensor|dict|torchmetrics.Metric, device) \
         return batch.to(device)
     else:
         raise Exception("Unexcepted batch type:", type(batch))
+
+
+def cat_batches(batch1: list|tuple|dict|torch.Tensor, batch2: list|tuple|dict|torch.Tensor) \
+    -> list|torch.Tensor|dict:
+    """Move any type of batch|nn.Module to device"""
+    assert type(batch1) == type(batch2)
+
+    def recurssive_dict(batch1: dict, batch2: dict):
+        for k, v1 in batch1.items():
+            v2 = batch2[k]
+            if isinstance(v1, dict):
+                batch1[k] = recurssive_dict(v1, v2)
+            elif isinstance(v1, (list, tuple)):
+                batch1[k] = recurssive_list(v1, v2)
+            elif isinstance(v1, torch.Tensor):
+                batch1[k] = torch.cat([v1, v2], dim=0)
+        return batch1
+    
+    def recurssive_list(batch1: list|tuple, batch2: list|tuple):
+        batch1 = list(batch1)
+        batch2 = list(batch2)
+        for idx, (item1, item2) in enumerate(zip(batch1, batch2)):
+            if isinstance(item1, (list, tuple)):
+                batch1[idx] = recurssive_list(item1, item2)
+            elif isinstance(item1, dict):
+                batch1[idx] = recurssive_dict(item1, item2)
+            elif isinstance(item1, torch.Tensor):
+                batch1[idx] = torch.cat([item1, item2], dim=0)
+        return batch1
+
+    if isinstance(batch1, dict):
+        return recurssive_dict(batch1, batch2)
+    elif isinstance(batch1, (list, tuple)):
+        return recurssive_list(batch1, batch2)
+    elif isinstance(batch1, torch.Tensor):
+        return torch.cat([batch1, batch2], dim=0)
+    else:
+        raise Exception("Unexcepted batch type:", type(batch1))
 
 def batch_to_tensor(batch: dict[str|dict, np.ndarray|dict]) \
     -> dict[str|dict, torch.Tensor|dict]:
