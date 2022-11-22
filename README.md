@@ -18,19 +18,19 @@ Project contains tools, utils and models to predict dota outcomes (win, game sta
 
 | metric            | This project | Bookmaker |
 | ----------------- | ------------ | --------- |
-| Accuracy          | 0.660        | 0.635     |
-| Balanced Accuracy | 0.660        | 0.639     |
-| AUC               | 0.747        | 0.709     |
-| LogLoss           | 0.620        | 0.633     |
+| Accuracy          | **0.660**   | 0.635     |
+| Balanced Accuracy | **0.660**   | 0.639     |
+| AUC               | **0.747**   | 0.709     |
+| LogLoss           | **0.620**   | 0.633     |
 
 #### Test set
 
-| metric            | This project | Bookmaker |
-| ----------------- | ------------ | --------- |
-| Accuracy          | 0.611        | 0.611     |
-| Balanced Accuracy | 0.607        | 0.609     |
-| AUC               | 0.663        | 0.625     |
-| LogLoss           | 0.651        | 0.670     |
+| metric            | This project | Bookmaker  |
+| ----------------- | ------------ | ---------- |
+| Accuracy          | **0.611**   | **0.611** |
+| Balanced Accuracy | 0.607        | **0.609** |
+| AUC               | **0.663**   | 0.625      |
+| LogLoss           | **0.651**   | 0.670      |
 
 ## Notes
 
