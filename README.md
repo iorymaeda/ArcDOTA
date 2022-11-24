@@ -14,6 +14,8 @@ Project contains tools, utils and models to predict dota outcomes (win, game sta
 
 ## Results
 
+Out-of-time validation
+
 #### Validation set
 
 | metric            | This project    | Bookmaker* |
