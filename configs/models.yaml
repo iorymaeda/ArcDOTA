@@ -5,25 +5,54 @@ prematch:
   compare_encoder_type: linear
 
   team_embedding:
-    embed_dim: 4
-
+    embedding_dim: 4
+    dropout: 0
+    init: uniform
+    init_kwargs: {a: -0.01, b: 0.01}
+    max_norm: null
   prize_pool_embedding:
-    embed_dim: 4
+    embedding_dim: 8
+    dropout: 0
+    init: uniform
+    init_kwargs: {a: -0.01, b: 0.01}
+    max_norm: null
+  games_num:
+    embedding_dim: 4
+    dropout: 0
+    init: uniform
+    init_kwargs: {a: -0.01, b: 0.01}
+    max_norm: null
 
   windowGamesFeatureEncoder:
     statsEncoder:
+      activation: swiglu
+      last_layer_activation: False
       num_layers: 2
       ff_dim: 32
-      norm: batch
+      norm: masked_batch
       prenorm: False
-      dropout: 0.2
-      wdropoout: 0.1
-      bdropoout: 0.1
+      predropout: True
+      dropout: 0.1
+      wdropoout: 0.15
+      bdropoout: 0.15
       bias: True
+    
+    splitStatsEncoder: False
+    norm: masked_batch
     embed_dim: 32
     pos_encoding: False
+    posEncoder:
+      dropout: 0
+      init: uniform
+      init_kwargs: {a: -0.01, b: 0.01}
+      max_norm: null
+    resultEncoder:
+      dropout: 0
+      init: uniform
+      init_kwargs: {a: -0.01, b: 0.01}
+      max_norm: null
     seq_permutation:
-      shuffles_num: 10
+      shuffles_num: 5
       max_step: 5
       p: 0
     seq_masking:
@@ -31,38 +60,42 @@ prematch:
 
   windows_seq_encoder:
     transformer:
-      embed_dim: 32
-      num_heads: 2
-      ff_dim: 32
+      embed_dim: 64
+      num_heads: 4
+      ff_dim: 64
       num_encoder_layers: 2
       skip_connection: 4
       dropout: 0.15
-      wdropoout: 0.
-      bdropoout: 0.
+      wdropoout: 0.15
+      bdropoout: 0.15
       layer_norm: post
       
     GRU:
-      embed_dim: 24
-      num_layers: 2
+      pool_output: False
+      embed_dim: 32
+      num_layers: 1
       dropout: 0
-      dropouti: 0.05
-      dropouth: 0.05
-      wdrop: 0.3
-      norm: none
+      dropouti: 0.1
+      dropouth: 0.1
+      wdrop: 0.15
+      norm: masked_batch
+      prenorm: False
       zoneout_prob: 0
       zoneout_layernorm: False
       activation: linear
-      attention: False
+      attention: True
       bidirectional: False
-      output_hidden: False
+      output_hidden: True
+      skip_connection: 0
       seq_permutation:
-        shuffles_num: 10
+        shuffles_num: 5
         max_step: 5
         p: 0
       seq_masking:
         p: 0
 
     IRNN:
+      pool_output: False
       embed_dim: 32
       num_layers: 2
       norm: none
@@ -73,21 +106,37 @@ prematch:
       activation: linear
       rec_activation: gelu
       rec_norm: False
-      layernorm: False
+      layernorm: True
       hiden_after_norm: False
       prenorm: False
+      seq_permutation:
+        shuffles_num: 10
+        max_step: 5
+        p: 0
+      seq_masking:
+        p: 0
 
     LSTM:
-      embed_dim: 24
+      pool_output: False
+      embed_dim: 64
       num_layers: 2
-      dropout: 0
-      dropouti: 0.05
-      dropouth: 0.05
-      wdrop: 0.2
-      zoneout_prob: 0
+      norm: layer
+      prenorm: False
+      dropout: 0.15
+      dropouti: 0.
+      dropouth: 0.
+      wdrop: 0
+      activation: gelu
       bidirectional: False
+      seq_permutation:
+        shuffles_num: 10
+        max_step: 5
+        p: 0
+      seq_masking:
+        p: 0
 
     LSTMN:
+      pool_output: False
       embed_dim: 24
       num_layers: 2
       dropout: 0
@@ -99,6 +148,8 @@ prematch:
       bidirectional: False
 
   compare_encoder: 
+    temperature: 1
+
     transformer:
       embed_dim: 16
       num_heads: 2
@@ -110,20 +161,27 @@ prematch:
       layer_norm: post
 
     linear: 
-      in_fnn_dims: [32, 16]
-      compare_fnn_dims: [32, 16]
+      in_fnn_dims: [64, 64]
+      compare_fnn_dims: [32, 32]
       out_dim: 2
-      dropout: 0.15
-      wdropoout: 0
-      bdropoout: 0
+      dropout: 0.1
+      wdropoout: 0.1
+      bdropoout: 0.1
       norm: batch
       prenorm: False
+      predropout: False
+      in_activation: gelu
+      compare_activation: gelu
       in_fnn_bias: True
       compare_fnn_bias: False
-
+      
     subtract:
-      in_fnn_dims: [32, 24]
-      compare_fnn_dims: [32, 16]
-      dropout: 0.15
+      in_fnn_dims: [24, 16]
+      compare_fnn_dims: [16, 8]
+      out_dim: 1
+      dropout: 0.1
+      wdropoout: 0.1
+      bdropoout: 0.1
+      activation: gelu
       in_fnn_bias: True
       compare_fnn_bias: False

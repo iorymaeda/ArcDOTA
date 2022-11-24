@@ -6,70 +6,90 @@ public:
     test: 0.075
 
 league:
-  batch_size: 256
-  label_smoothing: 0.05
+  split:
+    # if > 1 then it is number of samples
+    # elif <= 1 then it is percent of train data
+    val: 500
+    test: 2500
+
+  batch_size: 128
+  label_smoothing: 0
+  ensemble_boosting: True
 
   trainer:  
-    grad_clip_norm: 1
+    backward_second_output: False
+    grad_clip_norm: 0.5
     grad_clip_value: 0
-    sample_weight: False
     r_drop: 0
     c_reg:
       - r_window
       - d_window
       - r_window_featurs
       - d_window_featurs
-    c_reg_a: 0.02
-    c_reg_e: 100
+    c_reg_a: 0.0
+    c_reg_e: 2
     c_reg_detach: True
     c_reg_distance: cos
 
-  shuffle: False
-  split:
-    # if > 1 then it is number of samples
-    # elif <= 1 then it is percent of train data
-    val: 500
-    test: 500
+    boosting_c_reg_a: 0
+    boosting_c_reg_e: 0
+    boosting_c_reg_distance: cos
+    sample_weight: True
 
-  optimizer: AdamS
+  rnn_init:
+    ndim2: none
+    ndim2_kwargs: {} #{'a': -0.04, 'b': 0.04}
+
+    ndim1: none
+    ndim1_kwargs: {} #{'a': -0.04, 'b': 0.04}
+
+  linear_init:
+    ndim2: none
+    ndim2_kwargs: {}
+
+    ndim1: none
+    ndim1_kwargs: {}
+
+  shuffle: False
+  optimizer: Adam
   Adam:
-    lr: 1e-4
-    weight_decay: 0
+    lr: 5e-5
+    weight_decay: 1e-6
     amsgrad: False
   AdamW:
     lr: 1e-4
-    weight_decay: 1e-4
+    weight_decay: 6e-4
     amsgrad: False
   AdamS:
-    lr: 1e-4
-    weight_decay: 1e-3
+    lr: 5e-5
+    weight_decay: 1e-6
     amsgrad: False
   AdamC:
-    lr: 1e-4
-    weight_decay: 0.001
+    lr: 3e-4
+    weight_decay: 1e-5
     amsgrad: False
 
   SGD:
-    lr: 5e-4
-    weight_decay: 0.002
+    lr: 1e-3
+    weight_decay: 1e-4
     momentum: 0.9
     nesterov: False
   SGDS:
-    lr: 0.1
+    lr: 1e-3
     momentum: 0.9
     weight_decay: 1e-5
     nesterov: True
   SGDC:
-    lr: 0.1
-    weight_decay: 0.0005
+    lr: 1e-3
+    weight_decay: 1e-4
     momentum: 0.9
     nesterov: False
 
   use_scheduler: False
   scheduler:
-    init_lr: 1e-3
-    peak_lr: 5e-3
+    init_lr: 1e-5
+    peak_lr: 3e-4
     final_lr: 1e-4
     final_lr_scale: 0.1
-    warmup_steps: 30
-    decay_steps: 50
+    warmup_steps: 5
+    decay_steps: 15

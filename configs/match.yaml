@@ -10,7 +10,7 @@ public:
 
   # in mounth
   # matches older than this will be droped 
-  match_age: 12
+  match_age: 24
   
   # This is for team summary
   rd: # summary `r_` + `d_` stats
@@ -31,7 +31,7 @@ league:
     # premium is official valve tournaments
     premium: 
       include: True
-      prize_pool: 0
+      prize_pool: 50_000
     # unofficial tournaments
     professional: 
       include: True

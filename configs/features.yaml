@@ -18,27 +18,31 @@ league:
     # minimum games that team should play
     # otherwise this team will not tokinized
     min_played_games: 32
-    # minimum games that team with this players stack should play
-    # otherwise we will not predict this match with new stack (less than `min_played_games_for_stack` played games)
-    min_played_games_for_stack: 16
 
-  # Num of games in one window
+  # Maximum num of games in one window, otherwise restrict it
   window_size: 32
-  window_min_size: 2
+  # Min num of games in one window, otherwise drop it
+  window_min_size: 8
   # padding mode, pad at the start or end
   window_pad_mode: start
   # Features used in prediction
   features:
+    # linear - put as numbers
+    # categorical - put in embedding, quantize if necessary
+
     # Features includes in window
     window:
       stats: linear
       opponent_stats: linear
-      opponent: False
+      opponent: False # Include opponent's embeding in each past game in window
       result: categorical
+
+    # Features includes in last linear layers
     tabular: 
       grid: False
       teams: True
       players: False
+      games_num: False
       prize_pool: True
 
 
