@@ -1,4 +1,4 @@
-from typing import Callable, Optional
+from typing import Callable, Optional, Literal
 
 import torch
 import torch.nn.functional as F
@@ -22,6 +22,24 @@ class OrdinalCrossEntropyLoss(_WeightedLoss):
         loss = (1 + weights) * F.cross_entropy(input, target, weight=self.weight,
                                ignore_index=self.ignore_index, reduction='none',
                                label_smoothing=self.label_smoothing)
+
+        if self.reduction == 'none':
+            return loss
+        elif self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+
+class BinaryHingeLoss(torch.nn.Module):
+    def __init__(self, y_infimum: Literal[-1, 0], reduction='mean'):
+        self.y_infimum = y_infimum
+        self.reduction = reduction
+
+    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        if self.y_infimum == 0:
+            target = target*2 - 1
+            
+        loss = torch.max(torch.zeros_like(target), 1 - target * input)
 
         if self.reduction == 'none':
             return loss
