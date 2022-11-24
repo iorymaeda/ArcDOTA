@@ -45,12 +45,16 @@ def to_device(batch: list|tuple|dict|torch.Tensor|torchmetrics.Metric, device) \
     else:
         raise Exception("Unexcepted batch type:", type(batch))
 
+# def clone_batches(x: list|tuple|dict|torch.Tensor) \
+#     -> list|torch.Tensor|dict:
 
 def cat_batches(batch1: list|tuple|dict|torch.Tensor, batch2: list|tuple|dict|torch.Tensor) \
     -> list|torch.Tensor|dict:
-    """Move any type of batch|nn.Module to device"""
+    """Cat batch1 and batch2"""
     assert type(batch1) == type(batch2)
 
+    batch1: torch.Tensor
+    batch1 = batch1.clone()
     def recurssive_dict(batch1: dict, batch2: dict):
         for k, v1 in batch1.items():
             v2 = batch2[k]
