@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 from .prematch import PrematchModel
 from ..base import ConfigBase
-from .tools import to_device
+from .tools import to_device, cat_batches
 
 
 class BaseTrainer:
@@ -163,19 +163,14 @@ class SupervisedClassificationTrainer(BaseTrainer):
     def __init__(self, 
         model: PrematchModel | list[PrematchModel], loss_fn: nn.Module, optimizer: nn.Module, 
         sheduler=None, metrics=None, device='cuda', sample_weight=False, r_drop:float=0, 
-        c_reg:str|list[str]='none', c_reg_distance:str='cos', c_reg_a:float=0, c_reg_e:int=0, c_reg_detach:bool=False, 
+        c_reg:str|list[str]='none', c_reg_distance:str='cos', c_reg_a:float=0, c_reg_e:int=0, c_reg_detach:bool=False,
+        boosting_c_reg_a: float=0, boosting_c_reg_e: int=0, boosting_c_reg_distance:str='mse', 
         backward_second_output: bool = False,
         **kwargs):
         super().__init__(**kwargs)
         assert loss_fn.reduction == 'none'
         assert c_reg_distance in ['cos', 'mse', 'mae']
-
-        if isinstance(model, list):
-            self.model = [m.to(device) for m in model]
-            self.mode = 'ensemble'
-        else:    
-            self.model: PrematchModel = model.to(device)
-            self.mode = 'normal'
+        assert boosting_c_reg_distance in ['cos', 'mse', 'mae']
 
         self.device = device
         self.metrics = metrics
@@ -192,16 +187,36 @@ class SupervisedClassificationTrainer(BaseTrainer):
         self.c_reg_e = c_reg_e
         self.c_reg_detach = c_reg_detach
         self.c_reg_distance = c_reg_distance
+        self.boosting_c_reg_a = boosting_c_reg_a
+        self.boosting_c_reg_e = boosting_c_reg_e
+        self.boosting_c_reg_distance = boosting_c_reg_distance
         self.backward_second_output = backward_second_output
         if self.c_reg != 'none' and not isinstance(self.c_reg, list):
             self.c_reg = [self.c_reg]
 
-        self.сontrastive_condition =  self.c_reg != 'none' and self.c_reg and self.c_reg_a > 0
-        if (not self.сontrastive_condition and self.r_drop == 0) and backward_second_output:
+        self.сontrastive_condition = self.c_reg != 'none' and self.c_reg and self.c_reg_a > 0
+        self.boosting_condition =  self.c_reg != 'none' and boosting_c_reg_a > 0
+        if (not self.сontrastive_condition and self.r_drop == 0 and not self.boosting_condition) and backward_second_output:
             print(r'Warning: We can not do backward pass on second output, cause we have only one output from the model (use сontrastive regulation or r_drop). So we will forward batch from model/models twice')
+
+        if isinstance(model, list):
+            if self.boosting_condition and len(model) == 1:
+                raise Exception(r'You tried to use cross ensemble сontrastive reguralizatoin which means you minimize `boosting_c_reg_distance` beetwen this models layers, but there only one model')
+
+            self.model = [m.to(device) for m in model]
+            self.mode = 'ensemble'
+
+        else:    
+            if self.boosting_condition:
+                raise Exception(r'You tried to use cross ensemble сontrastive reguralizatoin which means you minimize `boosting_c_reg_distance` beetwen this models layers, but there only one model')
+
+            self.model: PrematchModel = model.to(device)
+            self.mode = 'normal'
 
     def train_step(self, batch: dict[str, torch.Tensor] | list[torch.Tensor, torch.Tensor]) -> dict:
         batch = to_device(batch, self.device)
+        сontrastive_condition = self.сontrastive_condition and self.epoch >= self.c_reg_e
+        boosting_condition = self.boosting_condition and self.epoch >= self.boosting_c_reg_e
 
         if isinstance(batch, dict):
             x, y = batch, batch['y']
@@ -213,56 +228,82 @@ class SupervisedClassificationTrainer(BaseTrainer):
         forward_time = time.time()
 
         if self.mode == 'normal':
-            outputs: torch.Tensor = self.model(x)
-            outputs2: list[torch.Tensor] = []
+            models = [self.model]
         elif self.mode == 'ensemble':
-            outputs: list[torch.Tensor] = [m(x) for m in self.model]
-            outputs: torch.Tensor = torch.stack(outputs).mean(dim=0)
-            outputs2: list[torch.Tensor] = []
+            models = self.model
+            
+        # Forward batch twice
+        if сontrastive_condition or boosting_condition or self.r_drop > 0 or self.backward_second_output:
+            x = cat_batches(x, x) #inplace operation
+            stacked_outputs: list[torch.Tensor] = [model(x) for model in models]
+            stacked_outputs: torch.Tensor = torch.stack(stacked_outputs).mean(dim=0)
+
+            n = len(stacked_outputs)//2
+            outputs, outputs2 = stacked_outputs[:n], stacked_outputs[n:]
+
         else:
-            raise Exception(f"Unexcepted train mode: {self.mode}")
+            outputs: list[torch.Tensor] = [model(x) for model in models]
+            outputs: torch.Tensor = torch.stack(outputs).mean(dim=0)
+            n = len(outputs)
 
+        # 0 - list with activation rom different layers in first model
+        # ...
+        # n - list with activation rom different layers in n model
+        activations_over_models = []
         # Contrastive regularazation
-        contrastive_loss = torch.tensor(0, dtype=outputs.dtype, device=outputs.device)
-        if self.сontrastive_condition and self.epoch >= self.c_reg_e:
-            if self.mode == 'normal':
-                models = [self.model]
-            elif self.mode == 'ensemble':
-                models = self.model
-
+        cl_loss = torch.tensor(0, dtype=outputs.dtype, device=outputs.device)
+        if сontrastive_condition:
             for model in models:
                 model: PrematchModel
-                embs1 = [model.emb_storage[emb_name] for emb_name in self.c_reg]
-                outputs2 += [model(x)]
+                embs1 = [model.emb_storage[emb_name][:n] for emb_name in self.c_reg]
+                embs2 = [model.emb_storage[emb_name][n:] for emb_name in self.c_reg]
+                activations_over_models.append(embs1)
 
-                embs2 = []
-                for emb_name in self.c_reg:
-                    _emb: torch.Tensor = model.emb_storage[emb_name]
-                    embs2.append(_emb.detach() if self.c_reg_detach else _emb)
-
-                cl = torch.tensor(0, dtype=outputs.dtype, device=outputs.device)
+                if self.c_reg_detach:
+                    embs2 = [e.detach() for e in embs2]
+                
                 for idx, (emb1, emb2) in enumerate(zip(embs1, embs2)):
                     if self.c_reg_distance == 'cos':
                         cos_sim = 1 - F.cosine_similarity(emb1, emb2, dim=-1)
                         cos_sim = cos_sim.mean()
-                        cl += cos_sim
+                        cl_loss += cos_sim
 
                     if self.c_reg_distance == 'mse':
-                        cl += F.mse_loss(emb1, emb2, reduction='mean')
+                        cl_loss += F.mse_loss(emb1, emb2, reduction='mean')
 
                     if self.c_reg_distance == 'mae':
-                        cl += F.l1_loss(emb1, emb2, reduction='mean')
+                        cl_loss += F.l1_loss(emb1, emb2, reduction='mean')
 
-                cl /= (idx + 1)
-                contrastive_loss += cl
+                cl_loss /= (idx + 1)
+                cl_loss /= len(models)
+        
+        cb_loss = torch.tensor(0, dtype=outputs.dtype, device=outputs.device)
+        if boosting_condition:
+            # Cross Boosting contrastive regularazation 
+            if not activations_over_models:
+                for model in models:
+                    embs = [model.emb_storage[emb_name][:n] for emb_name in self.c_reg]
+                    activations_over_models.append(embs)
+                    
+            for model_num1, activations1 in enumerate(activations_over_models):
+                for model_num2, activations2 in enumerate(activations_over_models):
 
-            contrastive_loss /= len(models)
-            outputs2: torch.Tensor = torch.stack(outputs2).mean(dim=0)
+                    if model_num1 != model_num2:
+                        for act1, act2 in zip(activations1, activations2):
+                            if self.boosting_c_reg_distance == 'cos':
+                                cos_sim = 1 - F.cosine_similarity(act1, act2, dim=-1)
+                                cos_sim = cos_sim.mean()
+                                cb_loss += cos_sim
 
-        # We need second outputs from NN if we don't have one
-        elif (self.r_drop > 0 or self.backward_second_output) and type(outputs2) is list:
-            outputs2: list[torch.Tensor] = [m(x) for m in self.model]
-            outputs2: torch.Tensor = torch.stack(outputs2).mean(dim=0)
+                            if self.boosting_c_reg_distance == 'mse':
+                                cb_loss += F.mse_loss(act1, act2, reduction='mean')
+
+                            if self.boosting_c_reg_distance == 'mae':
+                                cb_loss += F.l1_loss(act1, act2, reduction='mean')
+
+            cb_loss /= (model_num1+1)
+            cb_loss /= (model_num2+1)
+            cb_loss /= len(activations1)
 
         # CrossEntropy
         if isinstance(self.loss_fn, nn.BCEWithLogitsLoss):
@@ -302,25 +343,25 @@ class SupervisedClassificationTrainer(BaseTrainer):
         else:
             # ---------------------------------------------- #
             y = y.float()
-            # if (y.ndim == 2 and y.size(1) == 1) or (y.ndim == 1 and outputs.size(1) == 1):
-            #     outputs = outputs.sigmoid()
-            #     if self.backward_second_output:
-            #         outputs2 = outputs2.sigmoid()
-            # elif (y.ndim == 2 and y.size(1) > 1) or (y.ndim == 1 and outputs.size(1) > 1):
-            #     outputs = outputs.softmax(dim=-1)
-            #     if self.backward_second_output:
-            #         outputs2 = outputs2.softmax(dim=-1)
+            if (y.ndim == 2 and y.size(1) == 1) or (y.ndim == 1 and outputs.size(1) == 1):
+                outputs = outputs.sigmoid()
+                if self.backward_second_output:
+                    outputs2 = outputs2.sigmoid()
+            elif (y.ndim == 2 and y.size(1) > 1) or (y.ndim == 1 and outputs.size(1) > 1):
+                outputs = outputs.softmax(dim=-1)
+                if self.backward_second_output:
+                    outputs2 = outputs2.softmax(dim=-1)
 
             # ---------------------------------------------- #
             # Compare dimensions 
             if outputs.ndim == 2 and y.ndim == 2:
                 if outputs.size(1) == 2 and y.size(1) == 1:
                     outputs = outputs[:, 1:]
-                    outputs2 = outputs2[:, 1:] if self.backward_second_output else outputs2
+                    outputs2 = outputs2[:, 1:] if self.backward_second_output else None
 
             elif outputs.ndim == 2 and y.ndim == 1:
                 outputs = outputs[:, 1]
-                outputs2 = outputs2[:, 1] if self.backward_second_output else outputs2
+                outputs2 = outputs2[:, 1] if self.backward_second_output else None
 
             loss: torch.Tensor = self.loss_fn(outputs, y)
             if self.backward_second_output:
@@ -328,7 +369,7 @@ class SupervisedClassificationTrainer(BaseTrainer):
 
         # Sample weights
         if 'sample_weights' in x and self.sample_weight:
-            loss = loss * x['sample_weights']
+            loss = loss * x['sample_weights'][:n]
 
         # R-drop
         r_drop_loss = torch.tensor(0, dtype=outputs.dtype, device=outputs.device)
@@ -336,7 +377,7 @@ class SupervisedClassificationTrainer(BaseTrainer):
             r_drop_loss += self.compute_kl_loss(outputs, outputs2)
 
         loss = loss.mean()
-        loss = loss + contrastive_loss*self.c_reg_a + r_drop_loss*self.r_drop
+        loss = loss + cl_loss*self.c_reg_a + cb_loss*self.boosting_c_reg_a + r_drop_loss*self.r_drop
         forward_time = time.time() - forward_time
 
         backward_time = time.time()
@@ -357,7 +398,8 @@ class SupervisedClassificationTrainer(BaseTrainer):
 
         return {
             'LogLoss': loss.item(),
-            'ContrastiveLoss': contrastive_loss.item(),
+            'ContrastiveLoss': cl_loss.item(),
+            'CBContrastiveLoss': cb_loss.item(),
             'RDrop': r_drop_loss.item(),
             'forward_time': forward_time,
             'backward_time': backward_time,
@@ -371,6 +413,12 @@ class SupervisedClassificationTrainer(BaseTrainer):
             
         elif isinstance(self.loss_fn, nn.CrossEntropyLoss):
             y_pred = y_pred.softmax(dim=1)
+        
+        else:
+            if (y_true.ndim == 2 and y_true.size(1) == 1) or (y_true.ndim == 1 and y_pred.size(1) == 1):
+                y_pred = y_pred.sigmoid()
+            elif (y_true.ndim == 2 and y_true.size(1) > 1) or (y_true.ndim == 1 and y_pred.size(1) > 1):
+                y_pred = y_pred.softmax(dim=-1)
 
         if y_pred.ndim == 2 and y_pred.size(1) == 1:
             y_pred = y_pred[:, 0]
@@ -453,6 +501,12 @@ class PrematchTrainer(SupervisedClassificationTrainer):
             
         elif isinstance(self.loss_fn, nn.CrossEntropyLoss):
             y_pred = y_pred.softmax(dim=1)
+
+        else:
+            if (y_true.ndim == 2 and y_true.size(1) == 1) or (y_true.ndim == 1 and y_pred.size(1) == 1):
+                y_pred = y_pred.sigmoid()
+            elif (y_true.ndim == 2 and y_true.size(1) > 1) or (y_true.ndim == 1 and y_pred.size(1) > 1):
+                y_pred = y_pred.softmax(dim=-1)
 
         if y_pred.ndim == 2 and y_pred.size(1) == 1:
             y_pred = y_pred[:, 0]
