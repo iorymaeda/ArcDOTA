@@ -821,7 +821,7 @@ class WRNN(nn.Module):
     def __init__(self, rnn_type, input_size, hidden_size, num_layers, 
         activation='linear', norm='batch', prenorm=False, batch_first=True, 
         dropout=0, dropouti=0, dropouth=0, wdrop=0, 
-        zoneout_prob=0, zoneout_layernorm=False, 
+        zoneout_prob=0, zoneout_layernorm=False, skip_connection:int=0,
         seq_permutation:dict=None, seq_masking:dict=None, **kwargs):
         super(WRNN, self).__init__()
         assert rnn_type in ['LSTM', 'GRU', 'LSTMN', 'IRNN'], 'RNN type is not supported'
@@ -891,6 +891,7 @@ class WRNN(nn.Module):
         self.dropouth = dropouth
         self.batch_first = batch_first
         self.zoneout_prob = zoneout_prob
+        self.skip_connection = skip_connection
         self.activation = activation
         self.prenorm = prenorm
         self.norm = norm
@@ -911,6 +912,7 @@ class WRNN(nn.Module):
             hidden = self.init_hidden(bsz)
 
         n = 0
+        skip_connection = None
         raw_output = self.lockdrop(input, self.dropouti)
         for layer in self.rnns:
             if isinstance(layer, nn.BatchNorm1d):
@@ -940,6 +942,15 @@ class WRNN(nn.Module):
                 raw_output = self.lockdrop(raw_output, self.dropouth)
                 if self.norm == 'linear':
                     raw_output = apply_atcivation(self.activation, raw_output)
+                
+                # ----------------------------------------------------------- #
+                # Residual connection
+                if self.skip_connection > 0:
+                    if n == 0:
+                        skip_connection = raw_output
+
+                    elif (n+1)%self.skip_connection == 0:
+                        raw_output = skip_connection = raw_output + skip_connection
                 n+=1
 
         return {
