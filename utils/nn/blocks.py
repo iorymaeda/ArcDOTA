@@ -137,22 +137,45 @@ class WindowGamesFeatureEncoder(ConfigBase, nn.Module):
         """Preprocces and encode input data
         inputs is raw dict output from dataset"""
 
-        inputs['r_window'], inputs['r_window']['padded_mask'], inputs['r_window']['seq_len'] =\
-            self.masking(inputs['r_window'], inputs['r_window']['padded_mask'], inputs['r_window']['seq_len'])
-        inputs['r_window'] = self.permutation(inputs['r_window'], inputs['r_window']['padded_mask'], inputs['r_window']['seq_len'])
+        r_mask: torch.BoolTensor = inputs['r_window']['padded_mask']
+        d_mask: torch.BoolTensor = inputs['d_window']['padded_mask']
+        r_slen: torch.FloatTensor = inputs['r_window']['seq_len']
+        d_slen: torch.FloatTensor = inputs['d_window']['seq_len']
+
+        inputs['r_window'], r_mask, r_slen = self.masking(inputs['r_window'], r_mask, r_slen)
+        inputs['r_window'] = self.permutation(inputs['r_window'], d_mask, r_slen)
         
-        inputs['d_window'], inputs['d_window']['padded_mask'], inputs['d_window']['seq_len'] =\
-            self.masking(inputs['d_window'], inputs['d_window']['padded_mask'], inputs['d_window']['seq_len'])
-        inputs['d_window'] = self.permutation(inputs['d_window'], inputs['d_window']['padded_mask'], inputs['d_window']['seq_len'])
+        inputs['d_window'], d_mask, d_slen = self.masking(inputs['d_window'], d_mask, d_slen)
+        inputs['d_window'] = self.permutation(inputs['d_window'], d_mask, d_slen)
 
-        r_window = self.encode_features(inputs['r_window'], inputs['r_window']['padded_mask'])
-        d_window = self.encode_features(inputs['d_window'], inputs['d_window']['padded_mask'])
+        # Encode features
+        r_window = self.encode_features(inputs['r_window'], d_mask)
+        d_window = self.encode_features(inputs['d_window'], d_mask)
 
-        # position encoding
+        # Position encoding
         if self.models_config['pos_encoding']:
             r_window = r_window + self.pos_embedding(self.generate_pos_tokens(r_window))
             d_window = d_window + self.pos_embedding(self.generate_pos_tokens(d_window))
-        
+
+        # Zeros all padded values 
+        r_window = r_window * (~d_mask).unsqueeze(2).float()
+        d_window = d_window * (~d_mask).unsqueeze(2).float()
+
+        # Normilize
+        if self.models_config['norm'] in ['masked_batch', 'batch']:
+            r_window = apply_seq_batchnorm(r_window, self.norm, d_mask if self.models_config['norm'] == 'masked_batch' else None)
+            d_window = apply_seq_batchnorm(r_window, self.norm, d_mask if self.models_config['norm'] == 'masked_batch' else None)
+            
+        elif self.models_config['norm'] == 'layer':
+            r_window = self.norm(r_window)
+            d_window = self.norm(d_window)
+
+        # Padded mask and seq len may change after SeqMasking
+        inputs['r_window']['padded_mask'] = r_mask
+        inputs['d_window']['padded_mask'] = d_mask
+        inputs['r_window']['seq_len'] = r_slen
+        inputs['d_window']['seq_len'] = d_slen
+
         return r_window, d_window, inputs
 
     def generate_pos_tokens(self, inputs: torch.Tensor, mask: torch.BoolTensor=None) -> torch.Tensor:
@@ -193,7 +216,6 @@ class WindowGamesFeatureEncoder(ConfigBase, nn.Module):
                 else: 
                     output = output + f_output
 
-        output = apply_seq_batchnorm(output, self.norm, mask if self.models_config['norm'] == 'masked_batch' else None)
         return output
 
 class WindowSeqEncoder(ConfigBase, nn.Module):
@@ -405,15 +427,16 @@ class OutputHead(ConfigBase, nn.Module):
                     ]
             modules += [nn.Linear(conf['compare_fnn_dims'][-1], 1, bias=conf['compare_fnn_bias'])]
             self.compare_fnn = nn.Sequential(*modules)
+            self.out_dim = conf['out_dim']
 
             # -------------------------------------------------- #
             #  init
-            for w in self.compare_fnn.parameters():
-                if w.ndim == 2:
-                    nn.init.uniform_(w, -0.1, 0.1)
+            # for w in self.compare_fnn.parameters():
+            #     if w.ndim == 2:
+            #         nn.init.uniform_(w, -0.1, 0.1)
 
-                if w.ndim == 1:
-                    nn.init.zeros_(w)
+            #     if w.ndim == 1:
+            #         nn.init.zeros_(w)
         
         else: raise Exception
 
@@ -468,8 +491,9 @@ class OutputHead(ConfigBase, nn.Module):
             compare = self.compare_fnn(radiant - dire)
             self.emb_storage['compared'] = compare
             # | compare | : (batch_size, 1)
-            compare = torch.cat([compare, -compare], dim=1)
-            # | compare | : (batch_size, 2)
+            if self.out_dim:
+                compare = torch.cat([compare, -compare], dim=1)
+                # | compare | : (batch_size, 2)
             return compare / self.temperature
 
     def __generate_pos_tokens(self, inputs: torch.Tensor) -> torch.Tensor:
